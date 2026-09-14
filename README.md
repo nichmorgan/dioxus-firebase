@@ -1,6 +1,6 @@
 # dioxus-firebase
 
-Unofficial [Dioxus](https://dioxuslabs.com/) bridge for [Firebase Auth](https://firebase.google.com/docs/auth) (email/password).
+**Unofficial** [Dioxus](https://dioxuslabs.com/) bridge for [Firebase Auth](https://firebase.google.com/docs/auth) (email/password).
 
 **Mobile only for now** (iOS and Android). Web and desktop return `UnsupportedPlatform`.
 
