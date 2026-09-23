@@ -2,6 +2,12 @@
 //!
 //! Bundled automatically by Dioxus CLI 0.7+ via manganis Android plugin metadata.
 //! Context comes from `ndk_context` (initialized by Dioxus/wry).
+//!
+//! The host is an app class, so it is loaded with `Context.getClassLoader().loadClass`.
+//! `Env::find_class` (JNI `FindClass`) from `attach_current_thread` only searches the
+//! bootstrap loader and cannot see it. On release/arm64, jni 0.22 panics when that
+//! failure sets `ExceptionCheck` but `exception_occurred()` returns `None`, before any
+//! fallback can run. Framework classes may still use `find_class`.
 
 use jni::objects::{JClass, JClassLoader, JObject, JString, JValue};
 use jni::strings::JNIStr;
@@ -14,7 +20,6 @@ use crate::host_protocol::{parse_optional_string, parse_optional_user, parse_use
 use crate::subscribe;
 use crate::user::User;
 
-const HOST_CLASS: &JNIStr = jni_str!("io/dioxus/firebase/DioxusFirebaseAuthHost");
 const HOST_CLASS_DOT: &str = "io.dioxus.firebase.DioxusFirebaseAuthHost";
 
 const ON_AUTH_STATE_CHANGED: NativeMethod = native_method! {
@@ -297,39 +302,33 @@ fn find_host_class<'a>(
     env: &mut Env<'a>,
     context: &JObject<'_>,
 ) -> Result<JClass<'a>, FirebaseError> {
-    match env.find_class(HOST_CLASS) {
-        Ok(class) => Ok(class),
-        Err(_) => {
+    let loader = activity_class_loader(env, context)?;
+    let class_name = env
+        .new_string(HOST_CLASS_DOT)
+        .map_err(|e| FirebaseError::Native {
+            message: format!("failed to create class name string: {e}"),
+        })?;
+    let class = env
+        .call_method(
+            &loader,
+            jni_str!("loadClass"),
+            jni_sig!("(Ljava/lang/String;)Ljava/lang/Class;"),
+            &[JValue::Object(&class_name)],
+        )
+        .map_err(|e| {
             env.exception_clear();
-            let loader = activity_class_loader(env, context)?;
-            let class_name = env
-                .new_string(HOST_CLASS_DOT)
-                .map_err(|e| FirebaseError::Native {
-                    message: format!("failed to create class name string: {e}"),
-                })?;
-            let class = env
-                .call_method(
-                    &loader,
-                    jni_str!("loadClass"),
-                    jni_sig!("(Ljava/lang/String;)Ljava/lang/Class;"),
-                    &[JValue::Object(&class_name)],
-                )
-                .map_err(|e| {
-                    env.exception_clear();
-                    FirebaseError::HostMissing(format!(
-                        "DioxusFirebaseAuthHost not found ({e}). Compile android/ DioxusFirebaseAuthHost.kt into the Android app and depend on Firebase Auth."
-                    ))
-                })?
-                .l()
-                .map_err(|e| FirebaseError::Native {
-                    message: format!("loadClass returned unexpected type: {e}"),
-                })?;
-            env.cast_local::<JClass>(class)
-                .map_err(|e| FirebaseError::Native {
-                    message: format!("failed to cast loaded host class: {e}"),
-                })
-        }
-    }
+            FirebaseError::HostMissing(format!(
+                "DioxusFirebaseAuthHost not found ({e}). Compile android/ DioxusFirebaseAuthHost.kt into the Android app and depend on Firebase Auth."
+            ))
+        })?
+        .l()
+        .map_err(|e| FirebaseError::Native {
+            message: format!("loadClass returned unexpected type: {e}"),
+        })?;
+    env.cast_local::<JClass>(class)
+        .map_err(|e| FirebaseError::Native {
+            message: format!("failed to cast loaded host class: {e}"),
+        })
 }
 
 fn activity_class_loader<'a>(
