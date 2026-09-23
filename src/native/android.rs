@@ -5,11 +5,14 @@
 //!
 //! The host is an app class, so it is loaded with `Context.getClassLoader().loadClass`.
 //! `Env::find_class` (JNI `FindClass`) from `attach_current_thread` only searches the
-//! bootstrap loader and cannot see it. On release/arm64, jni 0.22 panics when that
-//! failure sets `ExceptionCheck` but `exception_occurred()` returns `None`, before any
-//! fallback can run. Framework classes may still use `find_class`.
+//! bootstrap loader and cannot see it. Framework classes may still use `find_class`.
+//!
+//! jni 0.22 returns `JavaException` without invoking the JNI call when `ExceptionCheck`
+//! is already set, and it does not clear that exception. `initialize` drains any
+//! pending throwable before `getClassLoader`. On release/arm64 `exception_occurred`
+//! can return `None` while `ExceptionCheck` is set; `ExceptionDescribe` records it.
 
-use jni::objects::{JClass, JClassLoader, JObject, JString, JValue};
+use jni::objects::{JClass, JClassLoader, JObject, JString, JThrowable, JValue};
 use jni::strings::JNIStr;
 use jni::sys::jobject;
 use jni::{jni_sig, jni_str, native_method, Env, JavaVM, NativeMethod};
@@ -59,6 +62,12 @@ pub(crate) fn initialize(options: &FirebaseOptions) -> Result<(), FirebaseError>
     let database_url = options.database_url.clone().unwrap_or_default();
 
     vm.attach_current_thread(|env| {
+        // This thread is already attached. A prior JNI call (Qonversion runs
+        // immediately before this) can leave an exception pending. jni 0.22
+        // then returns JavaException from getClassLoader without calling it.
+        if env.exception_check() {
+            let _recorded = take_pending_exception(env);
+        }
         let context = unsafe { JObject::from_raw(env, context_raw) };
         let host = find_host_class(env, &context)?;
         let api_key = env.new_string(&api_key)?;
@@ -335,18 +344,27 @@ fn activity_class_loader<'a>(
     env: &mut Env<'a>,
     context: &JObject<'_>,
 ) -> Result<JClassLoader<'a>, FirebaseError> {
-    let loader = env
-        .call_method(
-            context,
-            jni_str!("getClassLoader"),
-            jni_sig!("()Ljava/lang/ClassLoader;"),
-            &[],
-        )
-        .map_err(|e| map_exception(env, e, "Context.getClassLoader"))?
-        .l()
-        .map_err(|e| FirebaseError::Native {
-            message: format!("getClassLoader returned unexpected type: {e}"),
-        })?;
+    let value = match env.call_method(
+        context,
+        jni_str!("getClassLoader"),
+        jni_sig!("()Ljava/lang/ClassLoader;"),
+        &[],
+    ) {
+        Ok(value) => value,
+        Err(jni::errors::Error::JavaException) => {
+            let detail = take_pending_exception(env).unwrap_or_else(|| {
+                "Java exception was thrown; ExceptionCheck was clear, so the throwable could not be read (ExceptionDescribe had nothing to write)"
+                    .into()
+            });
+            return Err(FirebaseError::Native {
+                message: format!("Context.getClassLoader: {detail}"),
+            });
+        }
+        Err(e) => return Err(map_exception(env, e, "Context.getClassLoader")),
+    };
+    let loader = value.l().map_err(|e| FirebaseError::Native {
+        message: format!("getClassLoader returned unexpected type: {e}"),
+    })?;
     env.cast_local::<JClassLoader>(loader)
         .map_err(|e| FirebaseError::Native {
             message: format!("failed to cast ClassLoader: {e}"),
@@ -387,6 +405,60 @@ fn map_exception(env: &mut Env<'_>, err: jni::errors::Error, what: &str) -> Fire
     FirebaseError::Native {
         message: format!("{what}: {err}"),
     }
+}
+
+/// Read a pending JNI exception and clear it.
+///
+/// `Throwable.toString()` is `type: message`. It is a JNI call, so the pending
+/// exception is cleared only after [`Env::exception_occurred`] has saved the
+/// local ref — `call_method` pre-checks `ExceptionCheck` and would otherwise
+/// return `JavaException` without invoking `toString`.
+///
+/// When `exception_occurred` returns a throwable, `exception_describe` runs
+/// while that exception is still pending (logcat record), then the exception
+/// is cleared and `toString` supplies the returned text. When there is no
+/// throwable, or `toString` cannot be read, `exception_describe` is the record
+/// and the returned text says so.
+fn take_pending_exception(env: &mut Env<'_>) -> Option<String> {
+    if !env.exception_check() {
+        return None;
+    }
+    let Some(throwable) = env.exception_occurred() else {
+        env.exception_describe();
+        env.exception_clear();
+        return Some(
+            "pending Java exception (ExceptionOccurred returned null; ExceptionDescribe wrote it to logcat)"
+                .into(),
+        );
+    };
+
+    // Describe while the exception is still pending, after the local ref is
+    // saved. ART/HotSpot clear it as a side effect of ExceptionDescribe.
+    env.exception_describe();
+    env.exception_clear();
+    let described = throwable_to_string(env, &throwable);
+    if env.exception_check() {
+        env.exception_describe();
+        env.exception_clear();
+    }
+    Some(described.unwrap_or_else(|| {
+        "pending Java exception (toString failed; ExceptionDescribe wrote it to logcat)".into()
+    }))
+}
+
+fn throwable_to_string(env: &mut Env<'_>, throwable: &JThrowable<'_>) -> Option<String> {
+    let message = env
+        .call_method(
+            throwable,
+            jni_str!("toString"),
+            jni_sig!("()Ljava/lang/String;"),
+            &[],
+        )
+        .ok()?
+        .l()
+        .ok()?;
+    let jstring = env.cast_local::<JString>(message).ok()?;
+    jstring.try_to_string(env).ok()
 }
 
 fn describe_exception(env: &mut Env<'_>) -> Option<String> {
