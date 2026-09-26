@@ -9,10 +9,12 @@
 //!
 //! jni 0.22 returns `JavaException` without invoking the JNI call when `ExceptionCheck`
 //! is already set, and it does not clear that exception. `initialize` drains any
-//! pending throwable before `getClassLoader`. On release/arm64 `exception_occurred`
-//! can return `None` while `ExceptionCheck` is set; `ExceptionDescribe` records it.
+//! pending throwable before `getClassLoader`. `getClassLoader` itself is invoked with
+//! `call_method_unchecked`: `call_method` looks the method up inside a local frame and
+//! pops that frame before returning, which drops the throwable.
 
 use jni::objects::{JClass, JClassLoader, JObject, JString, JThrowable, JValue};
+use jni::signature::ReturnType;
 use jni::strings::JNIStr;
 use jni::sys::jobject;
 use jni::{jni_sig, jni_str, native_method, Env, JavaVM, NativeMethod};
@@ -344,24 +346,34 @@ fn activity_class_loader<'a>(
     env: &mut Env<'a>,
     context: &JObject<'_>,
 ) -> Result<JClassLoader<'a>, FirebaseError> {
-    let value = match env.call_method(
-        context,
-        jni_str!("getClassLoader"),
-        jni_sig!("()Ljava/lang/ClassLoader;"),
-        &[],
-    ) {
-        Ok(value) => value,
-        Err(jni::errors::Error::JavaException) => {
-            let detail = take_pending_exception(env).unwrap_or_else(|| {
-                "Java exception was thrown; ExceptionCheck was clear, so the throwable could not be read (ExceptionDescribe had nothing to write)"
-                    .into()
-            });
-            return Err(FirebaseError::Native {
-                message: format!("Context.getClassLoader: {detail}"),
-            });
+    // `call_method` looks the method up inside a local frame and pops that
+    // frame before returning, which drops the throwable.
+    let class = env.get_object_class(context).map_err(|e| {
+        let detail = take_pending_exception(env).unwrap_or_else(|| e.to_string());
+        FirebaseError::Native {
+            message: format!("Context.getClass: {detail}"),
         }
-        Err(e) => return Err(map_exception(env, e, "Context.getClassLoader")),
+    })?;
+    let value = unsafe {
+        // Safety: the id is looked up as `getClassLoader()Ljava/lang/ClassLoader;`
+        // on this object's class, and the return type is Object.
+        env.call_method_unchecked(
+            context,
+            (
+                &class,
+                jni_str!("getClassLoader"),
+                jni_sig!("()Ljava/lang/ClassLoader;"),
+            ),
+            ReturnType::Object,
+            &[],
+        )
     };
+    let value = value.map_err(|e| {
+        let detail = take_pending_exception(env).unwrap_or_else(|| e.to_string());
+        FirebaseError::Native {
+            message: format!("Context.getClassLoader: {detail}"),
+        }
+    })?;
     let loader = value.l().map_err(|e| FirebaseError::Native {
         message: format!("getClassLoader returned unexpected type: {e}"),
     })?;

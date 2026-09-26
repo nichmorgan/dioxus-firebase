@@ -101,7 +101,11 @@ object DioxusFirebaseAuthHost {
         val request = UserProfileChangeRequest.Builder()
             .setDisplayName(displayName)
             .build()
-        return awaitTask({ user.updateProfile(request) }) { ok() }
+        // Profile writes do not refresh the cached FirebaseUser.
+        return awaitTask({
+            Tasks.await(user.updateProfile(request), TASK_TIMEOUT_SECONDS, TimeUnit.SECONDS)
+            user.reload()
+        }) { ok() }
     }
 
     @JvmStatic

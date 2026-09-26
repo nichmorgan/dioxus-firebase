@@ -73,8 +73,15 @@ public class DioxusFirebaseAuthHost: NSObject {
         }
         let change = user.createProfileChangeRequest()
         change.displayName = displayName
+        // Profile writes do not refresh the cached user.
         return awaitVoid { completion in
-            change.commitChanges(completion: completion)
+            change.commitChanges { error in
+                if let error = error {
+                    completion(error)
+                } else {
+                    user.reload(completion: completion)
+                }
+            }
         }
     }
 

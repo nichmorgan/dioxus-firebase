@@ -32,7 +32,13 @@ pub fn create_user_with_email(
 
 pub fn update_display_name(display_name: impl AsRef<str>) -> Result<(), FirebaseError> {
     require_initialized()?;
-    native::update_display_name(display_name.as_ref())
+    native::update_display_name(display_name.as_ref())?;
+    // Auth state listeners do not fire for profile updates. Republish the
+    // reloaded user so subscribers see display_name.
+    if let Some(user) = native::current_user()? {
+        crate::subscribe::dispatch_auth_state(Some(user));
+    }
+    Ok(())
 }
 
 pub fn send_password_reset_email(email: impl AsRef<str>) -> Result<(), FirebaseError> {
