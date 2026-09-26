@@ -28,7 +28,7 @@ Native calls go through a thin host — Kotlin on Android (auto-bundled by Dioxu
 | **Library** | Auth primitives, structured **wire** error codes, native persistence, token refresh, auth-state listener |
 | **App** | `FirebaseOptions` (api key, app id, project id, staging vs prod), PT-BR / localized copy, route gates, fail-open identify |
 
-Do **not** put `google-services.json` keys inside this library. The app passes options at init (same idea as the Qonversion project key).
+Do **not** put `google-services.json` keys inside this library. The app passes options at init.
 
 ## Initialize
 

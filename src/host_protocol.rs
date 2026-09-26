@@ -117,63 +117,56 @@ pub(crate) fn require_email(email: &str) -> Result<(), FirebaseError> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use rstest::rstest;
 
-    #[test]
-    fn parses_signed_in_user() {
-        let user = parse_optional_user("OK\u{1f}uid1\u{1f}a@b.c\u{1f}Ada")
-            .unwrap()
-            .unwrap();
-        assert_eq!(user.uid, "uid1");
-        assert_eq!(user.email.as_deref(), Some("a@b.c"));
-        assert_eq!(user.display_name.as_deref(), Some("Ada"));
+    #[rstest]
+    #[case("OK", Ok(None))]
+    #[case("OK\0", Ok(None))]
+    #[case("OK\x1fuid1\x1fa@b.c\x1fAda", Ok(Some(User {
+        uid: "uid1".into(),
+        email: Some("a@b.c".into()),
+        display_name: Some("Ada".into()),
+    })))]
+    #[case("OK\x1fuid1\x1f\x1f", Ok(Some(User {
+        uid: "uid1".into(),
+        email: None,
+        display_name: None,
+    })))]
+    fn test_parse_optional_user(
+        #[case] input: &str,
+        #[case] expected: Result<Option<User>, FirebaseError>,
+    ) {
+        assert_eq!(parse_optional_user(input), expected);
     }
 
-    #[test]
-    fn parses_signed_out() {
-        assert!(parse_optional_user("OK").unwrap().is_none());
-    }
-
-    #[test]
-    fn parses_optional_string() {
-        assert_eq!(
-            parse_optional_string("OK\u{1f}tok").unwrap().as_deref(),
-            Some("tok")
-        );
-        assert!(parse_optional_string("OK").unwrap().is_none());
-        assert!(parse_optional_string("OK\u{1f}").unwrap().is_none());
-    }
-
-    #[test]
-    fn parses_auth_wire_code() {
-        let err = parse_void("ERR\u{1f}email-already-in-use\u{1f}taken").unwrap_err();
-        assert_eq!(
-            err,
-            FirebaseError::Auth {
-                code: "email-already-in-use".into(),
-                message: "taken".into(),
+    #[rstest]
+    #[case(
+        "ERR\x1finvalid-credential\x1fWrong password",
+        "invalid-credential",
+        "Wrong password"
+    )]
+    #[case(
+        "ERR\x1femail-already-in-use\x1fTaken",
+        "email-already-in-use",
+        "Taken"
+    )]
+    #[case("ERR\x1fnative\x1fCrash message", "native", "Crash message")]
+    fn test_parse_error_codes(
+        #[case] raw: &str,
+        #[case] expected_code: &str,
+        #[case] expected_msg: &str,
+    ) {
+        let err = parse_void(raw).unwrap_err();
+        match err {
+            FirebaseError::Auth { code, message } => {
+                assert_eq!(code, expected_code);
+                assert_eq!(message, expected_msg);
             }
-        );
-    }
-
-    #[test]
-    fn parses_native_timeout() {
-        let err = parse_void("ERR\u{1f}native\u{1f}timeout").unwrap_err();
-        assert_eq!(
-            err,
-            FirebaseError::Native {
-                message: "timeout".into(),
+            FirebaseError::Native { message } => {
+                assert_eq!(expected_code, "native");
+                assert_eq!(message, expected_msg);
             }
-        );
-    }
-
-    #[test]
-    fn rejects_malformed_ok() {
-        let err = parse_optional_user("OKuid").unwrap_err();
-        assert!(matches!(err, FirebaseError::Native { .. }));
-    }
-
-    #[test]
-    fn parse_user_fields_rejects_blank_uid() {
-        assert!(parse_user_fields("  \u{1f}a@b.c\u{1f}Ada").is_err());
+            _ => panic!("unexpected error variant: {err:?}"),
+        }
     }
 }

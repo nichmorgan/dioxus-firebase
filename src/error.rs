@@ -39,3 +39,51 @@ pub enum FirebaseError {
     #[error("native Firebase error: {message}")]
     Native { message: String },
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use rstest::rstest;
+
+    #[rstest]
+    #[case(
+        FirebaseError::InvalidConfig("missing api_key".into()),
+        "invalid Firebase config: missing api_key"
+    )]
+    #[case(FirebaseError::AlreadyInitialized, "Firebase is already initialized")]
+    #[case(FirebaseError::NotInitialized, "Firebase has not been initialized")]
+    #[case(
+        FirebaseError::UnsupportedPlatform,
+        "unsupported platform: dioxus-firebase is mobile-only (iOS/Android)"
+    )]
+    #[case(
+        FirebaseError::HostMissing("DioxusFirebaseAuthHost not found".into()),
+        "native Firebase host missing: DioxusFirebaseAuthHost not found"
+    )]
+    #[case(
+        FirebaseError::Auth {
+            code: "invalid-credential".into(),
+            message: "The email address is badly formatted.".into(),
+        },
+        "Firebase Auth error [invalid-credential]: The email address is badly formatted."
+    )]
+    #[case(
+        FirebaseError::Native {
+            message: "timed out waiting for main looper".into(),
+        },
+        "native Firebase error: timed out waiting for main looper"
+    )]
+    fn test_error_display_formatting(#[case] err: FirebaseError, #[case] expected_display: &str) {
+        assert_eq!(err.to_string(), expected_display);
+    }
+
+    #[test]
+    fn test_error_clone_and_equality() {
+        let err1 = FirebaseError::Auth {
+            code: "invalid-credential".into(),
+            message: "msg".into(),
+        };
+        let err2 = err1.clone();
+        assert_eq!(err1, err2);
+    }
+}

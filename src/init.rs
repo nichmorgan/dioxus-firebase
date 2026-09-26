@@ -51,11 +51,13 @@ pub fn initialize(options: FirebaseOptions) -> Result<(), FirebaseError> {
 }
 
 #[cfg(test)]
+#[allow(dead_code)]
 pub(crate) fn reset_initialized_for_test() {
     INITIALIZED.store(false, Ordering::Release);
 }
 
 #[cfg(test)]
+#[allow(dead_code)]
 pub(crate) fn mark_initialized_for_test() {
     INITIALIZED.store(true, Ordering::Release);
 }

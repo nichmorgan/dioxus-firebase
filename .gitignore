@@ -1,5 +1,17 @@
+# Rust / Cargo
 /target
 Cargo.lock
-android/.gradle/
-android/build/
+
+# Gradle & Android Build Outputs
+.gradle/
+build/
 android/local.properties
+
+# IDE & OS
+.idea/
+.DS_Store
+Thumbs.db
+
+# Firebase
+.firebase/
+firebase_debug.log
