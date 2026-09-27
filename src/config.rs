@@ -46,3 +46,62 @@ impl FirebaseOptions {
         Ok(())
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use rstest::{fixture, rstest};
+
+    #[fixture]
+    fn valid_options() -> FirebaseOptions {
+        FirebaseOptions {
+            api_key: "AIzaSyTestKey".into(),
+            app_id: "1:123456789:android:abcdef".into(),
+            project_id: "demo-project".into(),
+            messaging_sender_id: Some("123456789".into()),
+            storage_bucket: Some("demo-project.appspot.com".into()),
+            database_url: Some("https://demo-project.firebaseio.com".into()),
+        }
+    }
+
+    #[rstest]
+    fn test_valid_options_pass(valid_options: FirebaseOptions) {
+        assert_eq!(valid_options.validate(), Ok(()));
+    }
+
+    #[rstest]
+    fn test_valid_options_minimal_pass(mut valid_options: FirebaseOptions) {
+        valid_options.messaging_sender_id = None;
+        valid_options.storage_bucket = None;
+        valid_options.database_url = None;
+        assert_eq!(valid_options.validate(), Ok(()));
+    }
+
+    #[rstest]
+    #[case("", "app", "project", "api_key must not be empty")]
+    #[case("  ", "app", "project", "api_key must not be empty")]
+    #[case("key", "", "project", "app_id must not be empty")]
+    #[case("key", "  ", "project", "app_id must not be empty")]
+    #[case("key", "app", "", "project_id must not be empty")]
+    #[case("key", "app", "   ", "project_id must not be empty")]
+    fn test_validation_failures(
+        #[case] api_key: &str,
+        #[case] app_id: &str,
+        #[case] project_id: &str,
+        #[case] expected_msg: &str,
+    ) {
+        let options = FirebaseOptions {
+            api_key: api_key.into(),
+            app_id: app_id.into(),
+            project_id: project_id.into(),
+            messaging_sender_id: None,
+            storage_bucket: None,
+            database_url: None,
+        };
+        let err = options.validate().unwrap_err();
+        match err {
+            FirebaseError::InvalidConfig(msg) => assert!(msg.contains(expected_msg)),
+            _ => panic!("expected InvalidConfig, got {err:?}"),
+        }
+    }
+}

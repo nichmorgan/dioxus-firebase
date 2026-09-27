@@ -37,6 +37,8 @@ objc = "0.2"
 
 [dev-dependencies]
 dioxus = { version = "0.7.10", features = ["desktop"] }
+rstest = "0.27.0"
+tokio = "1.53.1"
 
 [lints.rust]
 # objc 0.2 macros expand to `cfg(feature = "cargo-clippy")` (predates `cfg(clippy)`).

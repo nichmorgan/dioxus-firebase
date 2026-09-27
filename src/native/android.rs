@@ -5,16 +5,9 @@
 //!
 //! The host is an app class, so it is loaded with `Context.getClassLoader().loadClass`.
 //! `Env::find_class` (JNI `FindClass`) from `attach_current_thread` only searches the
-//! bootstrap loader and cannot see it. Framework classes may still use `find_class`.
-//!
-//! jni 0.22 returns `JavaException` without invoking the JNI call when `ExceptionCheck`
-//! is already set, and it does not clear that exception. `initialize` drains any
-//! pending throwable before `getClassLoader`. `getClassLoader` itself is invoked with
-//! `call_method_unchecked`: `call_method` looks the method up inside a local frame and
-//! pops that frame before returning, which drops the throwable.
+//! bootstrap loader and cannot see app classes.
 
-use jni::objects::{JClass, JClassLoader, JObject, JString, JThrowable, JValue};
-use jni::signature::ReturnType;
+use jni::objects::{JClass, JClassLoader, JObject, JString, JValue};
 use jni::strings::JNIStr;
 use jni::sys::jobject;
 use jni::{jni_sig, jni_str, native_method, Env, JavaVM, NativeMethod};
@@ -54,8 +47,9 @@ impl From<jni::errors::Error> for FirebaseError {
     }
 }
 
+// --- Public API ---
+
 pub(crate) fn initialize(options: &FirebaseOptions) -> Result<(), FirebaseError> {
-    let (vm, context_raw) = java_vm_and_context()?;
     let api_key = options.api_key.clone();
     let app_id = options.app_id.clone();
     let project_id = options.project_id.clone();
@@ -63,15 +57,8 @@ pub(crate) fn initialize(options: &FirebaseOptions) -> Result<(), FirebaseError>
     let storage_bucket = options.storage_bucket.clone().unwrap_or_default();
     let database_url = options.database_url.clone().unwrap_or_default();
 
-    vm.attach_current_thread(|env| {
-        // This thread is already attached. A prior JNI call (Qonversion runs
-        // immediately before this) can leave an exception pending. jni 0.22
-        // then returns JavaException from getClassLoader without calling it.
-        if env.exception_check() {
-            let _recorded = take_pending_exception(env);
-        }
-        let context = unsafe { JObject::from_raw(env, context_raw) };
-        let host = find_host_class(env, &context)?;
+    with_host(|env, host, context| {
+        env.exception_clear();
         let api_key = env.new_string(&api_key)?;
         let app_id = env.new_string(&app_id)?;
         let project_id = env.new_string(&project_id)?;
@@ -81,13 +68,13 @@ pub(crate) fn initialize(options: &FirebaseOptions) -> Result<(), FirebaseError>
 
         let reply = env
             .call_static_method(
-                &host,
+                host,
                 jni_str!("initialize"),
                 jni_sig!(
                     "(Landroid/content/Context;Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;)Ljava/lang/String;"
                 ),
                 &[
-                    JValue::Object(&context),
+                    JValue::Object(context),
                     JValue::Object(&api_key),
                     JValue::Object(&app_id),
                     JValue::Object(&project_id),
@@ -158,13 +145,10 @@ pub(crate) fn current_user() -> Result<Option<User>, FirebaseError> {
 }
 
 pub(crate) fn id_token(force_refresh: bool) -> Result<Option<String>, FirebaseError> {
-    let (vm, context_raw) = java_vm_and_context()?;
-    vm.attach_current_thread(|env| {
-        let context = unsafe { JObject::from_raw(env, context_raw) };
-        let host = find_host_class(env, &context)?;
+    with_host(|env, host, _| {
         let reply = env
             .call_static_method(
-                &host,
+                host,
                 jni_str!("idToken"),
                 jni_sig!("(Z)Ljava/lang/String;"),
                 &[JValue::Bool(force_refresh)],
@@ -175,16 +159,13 @@ pub(crate) fn id_token(force_refresh: bool) -> Result<Option<String>, FirebaseEr
     })
 }
 
-pub(crate) fn use_emulator(host: &str, port: u16) -> Result<(), FirebaseError> {
-    let (vm, context_raw) = java_vm_and_context()?;
-    let host_name = host.to_string();
-    vm.attach_current_thread(|env| {
-        let context = unsafe { JObject::from_raw(env, context_raw) };
-        let host_class = find_host_class(env, &context)?;
+pub(crate) fn use_emulator(host_name: &str, port: u16) -> Result<(), FirebaseError> {
+    let host_name = host_name.to_string();
+    with_host(|env, host, _| {
         let host_str = env.new_string(&host_name)?;
         let reply = env
             .call_static_method(
-                &host_class,
+                host,
                 jni_str!("useEmulator"),
                 jni_sig!("(Ljava/lang/String;I)Ljava/lang/String;"),
                 &[JValue::Object(&host_str), JValue::Int(i32::from(port))],
@@ -196,14 +177,11 @@ pub(crate) fn use_emulator(host: &str, port: u16) -> Result<(), FirebaseError> {
 }
 
 pub(crate) fn subscribe_auth_state() -> Result<(), FirebaseError> {
-    let (vm, context_raw) = java_vm_and_context()?;
-    vm.attach_current_thread(|env| {
-        let context = unsafe { JObject::from_raw(env, context_raw) };
-        let host = find_host_class(env, &context)?;
-        register_auth_callback(env, &host)?;
+    with_host(|env, host, _| {
+        register_auth_callback(env, host)?;
         let reply = env
             .call_static_method(
-                &host,
+                host,
                 jni_str!("subscribeAuthState"),
                 jni_sig!("()Ljava/lang/String;"),
                 &[],
@@ -214,6 +192,20 @@ pub(crate) fn subscribe_auth_state() -> Result<(), FirebaseError> {
     })
 }
 
+// --- JNI Dispatch Helpers ---
+
+fn with_host<F, T>(f: F) -> Result<T, FirebaseError>
+where
+    F: FnOnce(&mut Env<'_>, &JClass<'_>, &JObject<'_>) -> Result<T, FirebaseError>,
+{
+    let (vm, context_raw) = java_vm_and_context()?;
+    vm.attach_current_thread(|env| {
+        let context = unsafe { JObject::from_raw(env, context_raw) };
+        let host = find_host_class(env, &context)?;
+        f(env, &host, &context)
+    })
+}
+
 fn call_email_password<T>(
     method: &'static JNIStr,
     what: &str,
@@ -221,17 +213,14 @@ fn call_email_password<T>(
     password: &str,
     parse: fn(&str) -> Result<T, FirebaseError>,
 ) -> Result<T, FirebaseError> {
-    let (vm, context_raw) = java_vm_and_context()?;
     let email = email.to_string();
     let password = password.to_string();
-    vm.attach_current_thread(|env| {
-        let context = unsafe { JObject::from_raw(env, context_raw) };
-        let host = find_host_class(env, &context)?;
+    with_host(|env, host, _| {
         let email = env.new_string(&email)?;
         let password = env.new_string(&password)?;
         let reply = env
             .call_static_method(
-                &host,
+                host,
                 method,
                 jni_sig!("(Ljava/lang/String;Ljava/lang/String;)Ljava/lang/String;"),
                 &[JValue::Object(&email), JValue::Object(&password)],
@@ -248,15 +237,12 @@ fn call_one_string<T>(
     value: &str,
     parse: fn(&str) -> Result<T, FirebaseError>,
 ) -> Result<T, FirebaseError> {
-    let (vm, context_raw) = java_vm_and_context()?;
     let value = value.to_string();
-    vm.attach_current_thread(|env| {
-        let context = unsafe { JObject::from_raw(env, context_raw) };
-        let host = find_host_class(env, &context)?;
+    with_host(|env, host, _| {
         let value = env.new_string(&value)?;
         let reply = env
             .call_static_method(
-                &host,
+                host,
                 method,
                 jni_sig!("(Ljava/lang/String;)Ljava/lang/String;"),
                 &[JValue::Object(&value)],
@@ -272,17 +258,16 @@ fn call_no_args<T>(
     what: &str,
     parse: fn(&str) -> Result<T, FirebaseError>,
 ) -> Result<T, FirebaseError> {
-    let (vm, context_raw) = java_vm_and_context()?;
-    vm.attach_current_thread(|env| {
-        let context = unsafe { JObject::from_raw(env, context_raw) };
-        let host = find_host_class(env, &context)?;
+    with_host(|env, host, _| {
         let reply = env
-            .call_static_method(&host, method, jni_sig!("()Ljava/lang/String;"), &[])
+            .call_static_method(host, method, jni_sig!("()Ljava/lang/String;"), &[])
             .map_err(|e| map_exception(env, e, what))?
             .l()?;
         map_string_reply(env, reply, parse)
     })
 }
+
+// --- ClassLoader & Low-Level JNI Resolution ---
 
 fn register_auth_callback(env: &mut Env<'_>, host: &JClass<'_>) -> Result<(), FirebaseError> {
     unsafe { env.register_native_methods(host, &[ON_AUTH_STATE_CHANGED]) }.map_err(|e| {
@@ -298,8 +283,6 @@ fn java_vm_and_context() -> Result<(JavaVM, jobject), FirebaseError> {
             "ndk_context is not initialized (is this a Dioxus Android app?)".into(),
         )
     };
-    // ndk-context 0.1 has no try API; android_context() panics if wry/Dioxus
-    // never called initialize_android_context (unit tests, too-early calls).
     let android_ctx =
         std::panic::catch_unwind(ndk_context::android_context).map_err(|_| missing())?;
     if android_ctx.context().is_null() || android_ctx.vm().is_null() {
@@ -346,41 +329,97 @@ fn activity_class_loader<'a>(
     env: &mut Env<'a>,
     context: &JObject<'_>,
 ) -> Result<JClassLoader<'a>, FirebaseError> {
-    // `call_method` looks the method up inside a local frame and pops that
-    // frame before returning, which drops the throwable.
-    let class = env.get_object_class(context).map_err(|e| {
-        let detail = take_pending_exception(env).unwrap_or_else(|| e.to_string());
-        FirebaseError::Native {
-            message: format!("Context.getClass: {detail}"),
-        }
-    })?;
-    let value = unsafe {
-        // Safety: the id is looked up as `getClassLoader()Ljava/lang/ClassLoader;`
-        // on this object's class, and the return type is Object.
-        env.call_method_unchecked(
-            context,
-            (
-                &class,
-                jni_str!("getClassLoader"),
-                jni_sig!("()Ljava/lang/ClassLoader;"),
-            ),
-            ReturnType::Object,
-            &[],
-        )
-    };
-    let value = value.map_err(|e| {
-        let detail = take_pending_exception(env).unwrap_or_else(|| e.to_string());
-        FirebaseError::Native {
-            message: format!("Context.getClassLoader: {detail}"),
-        }
-    })?;
-    let loader = value.l().map_err(|e| FirebaseError::Native {
-        message: format!("getClassLoader returned unexpected type: {e}"),
-    })?;
+    env.exception_clear();
+    let loader_raw = raw_get_class_loader(env, context.as_raw())?;
+    env.exception_clear();
+    let loader = unsafe { JObject::from_raw(env, loader_raw) };
     env.cast_local::<JClassLoader>(loader)
         .map_err(|e| FirebaseError::Native {
             message: format!("failed to cast ClassLoader: {e}"),
         })
+}
+
+fn raw_get_class_loader(env: &mut Env<'_>, context: jobject) -> Result<jobject, FirebaseError> {
+    unsafe {
+        let jni_env = env.get_raw();
+        let interface = *jni_env;
+        ((*interface).v1_1.ExceptionClear)(jni_env);
+        let class = ((*interface).v1_1.GetObjectClass)(jni_env, context);
+        if class.is_null() {
+            return Err(FirebaseError::Native {
+                message: format!("Context.getClass: {}", pending_exception_text(env)),
+            });
+        }
+        ((*interface).v1_1.ExceptionClear)(jni_env);
+        let method = ((*interface).v1_1.GetMethodID)(
+            jni_env,
+            class,
+            b"getClassLoader\0".as_ptr().cast(),
+            b"()Ljava/lang/ClassLoader;\0".as_ptr().cast(),
+        );
+        if method.is_null() {
+            return Err(FirebaseError::Native {
+                message: format!("Context.getClassLoader: {}", pending_exception_text(env)),
+            });
+        }
+        ((*interface).v1_1.ExceptionClear)(jni_env);
+        let loader =
+            ((*interface).v1_1.CallObjectMethodA)(jni_env, context, method, std::ptr::null());
+        if loader.is_null() {
+            return Err(FirebaseError::Native {
+                message: format!("Context.getClassLoader: {}", pending_exception_text(env)),
+            });
+        }
+        ((*interface).v1_1.ExceptionClear)(jni_env);
+        Ok(loader)
+    }
+}
+
+fn pending_exception_text(env: &mut Env<'_>) -> String {
+    unsafe {
+        let jni_env = env.get_raw();
+        let interface = *jni_env;
+        let throwable = ((*interface).v1_1.ExceptionOccurred)(jni_env);
+        ((*interface).v1_1.ExceptionDescribe)(jni_env);
+        ((*interface).v1_1.ExceptionClear)(jni_env);
+        if throwable.is_null() {
+            return "Java exception was thrown (ExceptionOccurred returned null)".into();
+        }
+        let class = ((*interface).v1_1.GetObjectClass)(jni_env, throwable);
+        if class.is_null() {
+            ((*interface).v1_1.ExceptionClear)(jni_env);
+            return "Java exception was thrown (no throwable class)".into();
+        }
+        let to_string = ((*interface).v1_1.GetMethodID)(
+            jni_env,
+            class,
+            b"toString\0".as_ptr().cast(),
+            b"()Ljava/lang/String;\0".as_ptr().cast(),
+        );
+        if to_string.is_null() {
+            ((*interface).v1_1.ExceptionClear)(jni_env);
+            return "Java exception was thrown (toString missing)".into();
+        }
+        let message =
+            ((*interface).v1_1.CallObjectMethodA)(jni_env, throwable, to_string, std::ptr::null());
+        if message.is_null() || env.exception_check() {
+            ((*interface).v1_1.ExceptionClear)(jni_env);
+            return "Java exception was thrown (toString failed)".into();
+        }
+        let chars = ((*interface).v1_1.GetStringUTFChars)(
+            jni_env,
+            message as jni::sys::jstring,
+            std::ptr::null_mut(),
+        );
+        if chars.is_null() {
+            return "Java exception was thrown (empty message)".into();
+        }
+        let text = std::ffi::CStr::from_ptr(chars)
+            .to_string_lossy()
+            .into_owned();
+        ((*interface).v1_1.ReleaseStringUTFChars)(jni_env, message as jni::sys::jstring, chars);
+        text
+    }
 }
 
 fn map_string_reply<T>(
@@ -419,60 +458,6 @@ fn map_exception(env: &mut Env<'_>, err: jni::errors::Error, what: &str) -> Fire
     }
 }
 
-/// Read a pending JNI exception and clear it.
-///
-/// `Throwable.toString()` is `type: message`. It is a JNI call, so the pending
-/// exception is cleared only after [`Env::exception_occurred`] has saved the
-/// local ref — `call_method` pre-checks `ExceptionCheck` and would otherwise
-/// return `JavaException` without invoking `toString`.
-///
-/// When `exception_occurred` returns a throwable, `exception_describe` runs
-/// while that exception is still pending (logcat record), then the exception
-/// is cleared and `toString` supplies the returned text. When there is no
-/// throwable, or `toString` cannot be read, `exception_describe` is the record
-/// and the returned text says so.
-fn take_pending_exception(env: &mut Env<'_>) -> Option<String> {
-    if !env.exception_check() {
-        return None;
-    }
-    let Some(throwable) = env.exception_occurred() else {
-        env.exception_describe();
-        env.exception_clear();
-        return Some(
-            "pending Java exception (ExceptionOccurred returned null; ExceptionDescribe wrote it to logcat)"
-                .into(),
-        );
-    };
-
-    // Describe while the exception is still pending, after the local ref is
-    // saved. ART/HotSpot clear it as a side effect of ExceptionDescribe.
-    env.exception_describe();
-    env.exception_clear();
-    let described = throwable_to_string(env, &throwable);
-    if env.exception_check() {
-        env.exception_describe();
-        env.exception_clear();
-    }
-    Some(described.unwrap_or_else(|| {
-        "pending Java exception (toString failed; ExceptionDescribe wrote it to logcat)".into()
-    }))
-}
-
-fn throwable_to_string(env: &mut Env<'_>, throwable: &JThrowable<'_>) -> Option<String> {
-    let message = env
-        .call_method(
-            throwable,
-            jni_str!("toString"),
-            jni_sig!("()Ljava/lang/String;"),
-            &[],
-        )
-        .ok()?
-        .l()
-        .ok()?;
-    let jstring = env.cast_local::<JString>(message).ok()?;
-    jstring.try_to_string(env).ok()
-}
-
 fn describe_exception(env: &mut Env<'_>) -> Option<String> {
     let throwable = env.exception_occurred()?;
     env.exception_clear();
@@ -488,4 +473,74 @@ fn describe_exception(env: &mut Env<'_>) -> Option<String> {
         .ok()?;
     let jstring = env.cast_local::<JString>(message).ok()?;
     jstring.try_to_string(env).ok()
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use rstest::rstest;
+
+    #[rstest]
+    fn test_host_class_dot_name() {
+        assert_eq!(HOST_CLASS_DOT, "io.dioxus.firebase.DioxusFirebaseAuthHost");
+    }
+
+    #[rstest]
+    fn test_java_vm_and_context_returns_host_missing_without_ndk_context() {
+        let err = java_vm_and_context().expect_err("must fail without ndk_context");
+        assert!(matches!(err, FirebaseError::HostMissing(msg) if msg.contains("ndk_context")));
+    }
+
+    #[rstest]
+    fn test_primitives_return_host_missing_when_uncontextualized() {
+        let opts = FirebaseOptions {
+            api_key: "key".into(),
+            app_id: "app".into(),
+            project_id: "project".into(),
+            messaging_sender_id: None,
+            storage_bucket: None,
+            database_url: None,
+        };
+
+        assert!(matches!(
+            initialize(&opts).unwrap_err(),
+            FirebaseError::HostMissing(_)
+        ));
+        assert!(matches!(
+            sign_in_with_email("a@b.c", "pass").unwrap_err(),
+            FirebaseError::HostMissing(_)
+        ));
+        assert!(matches!(
+            create_user_with_email("a@b.c", "pass").unwrap_err(),
+            FirebaseError::HostMissing(_)
+        ));
+        assert!(matches!(
+            update_display_name("Ada").unwrap_err(),
+            FirebaseError::HostMissing(_)
+        ));
+        assert!(matches!(
+            send_password_reset_email("a@b.c").unwrap_err(),
+            FirebaseError::HostMissing(_)
+        ));
+        assert!(matches!(
+            sign_out().unwrap_err(),
+            FirebaseError::HostMissing(_)
+        ));
+        assert!(matches!(
+            current_user().unwrap_err(),
+            FirebaseError::HostMissing(_)
+        ));
+        assert!(matches!(
+            id_token(false).unwrap_err(),
+            FirebaseError::HostMissing(_)
+        ));
+        assert!(matches!(
+            use_emulator("127.0.0.1", 9099).unwrap_err(),
+            FirebaseError::HostMissing(_)
+        ));
+        assert!(matches!(
+            subscribe_auth_state().unwrap_err(),
+            FirebaseError::HostMissing(_)
+        ));
+    }
 }

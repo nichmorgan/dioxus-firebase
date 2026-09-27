@@ -16,8 +16,15 @@ import FirebaseAuth
 public class DioxusFirebaseAuthHost: NSObject {
     private static let unit: Character = "\u{1f}"
     private static let waitTimeout: TimeInterval = 60
+    private static let subscribeLock = NSLock()
     private static var authListenerHandle: AuthStateDidChangeListenerHandle?
     private static var rustCallback: (@convention(c) (UnsafePointer<CChar>?) -> Void)?
+
+    /// Default Firebase app (re-read each time; do not cache).
+    private static var app: FirebaseApp? { FirebaseApp.app() }
+
+    /// Auth for the default app (re-read each time; do not cache).
+    private static var auth: Auth { Auth.auth() }
 
     /// Initialize default `FirebaseApp` when missing, using app-supplied options.
     @objc(initializeWithApiKey:appId:projectId:messagingSenderId:storageBucket:databaseURL:)
@@ -29,46 +36,55 @@ public class DioxusFirebaseAuthHost: NSObject {
         storageBucket: String,
         databaseURL: String
     ) -> String {
-        return runOnMainSync {
-            if FirebaseApp.app() == nil {
-                let options = FirebaseOptions(googleAppID: appId.trimmingCharacters(in: .whitespacesAndNewlines),
-                                              gcmSenderID: messagingSenderId.isEmpty ? "0" : messagingSenderId)
-                options.apiKey = apiKey.trimmingCharacters(in: .whitespacesAndNewlines)
-                options.projectID = projectId.trimmingCharacters(in: .whitespacesAndNewlines)
-                if !storageBucket.isEmpty {
-                    options.storageBucket = storageBucket
+        do {
+            return try runOnMainSync {
+                if app == nil {
+                    let trimmedSender = messagingSenderId.trimmingCharacters(in: .whitespacesAndNewlines)
+                    let trimmedBucket = storageBucket.trimmingCharacters(in: .whitespacesAndNewlines)
+                    let trimmedDatabaseURL = databaseURL.trimmingCharacters(in: .whitespacesAndNewlines)
+                    let options = FirebaseOptions(
+                        googleAppID: appId.trimmingCharacters(in: .whitespacesAndNewlines),
+                        gcmSenderID: trimmedSender.isEmpty ? "0" : trimmedSender
+                    )
+                    options.apiKey = apiKey.trimmingCharacters(in: .whitespacesAndNewlines)
+                    options.projectID = projectId.trimmingCharacters(in: .whitespacesAndNewlines)
+                    if !trimmedBucket.isEmpty {
+                        options.storageBucket = trimmedBucket
+                    }
+                    if !trimmedDatabaseURL.isEmpty {
+                        options.databaseURL = trimmedDatabaseURL
+                    }
+                    FirebaseApp.configure(options: options)
                 }
-                if !databaseURL.isEmpty {
-                    options.databaseURL = databaseURL
-                }
-                FirebaseApp.configure(options: options)
+                _ = auth // Ensure Auth is created against the configured app
+                return ok()
             }
-            _ = Auth.auth()
-            return ok()
+        } catch {
+            return mapError(error)
         }
     }
 
     @objc(signInWithEmail:password:)
     public static func signIn(email: String, password: String) -> String {
         return awaitAuth { completion in
-            Auth.auth().signIn(withEmail: email.trimmingCharacters(in: .whitespacesAndNewlines),
-                              password: password,
-                              completion: completion)
+            auth.signIn(withEmail: email.trimmingCharacters(in: .whitespacesAndNewlines),
+                        password: password,
+                        completion: completion)
         }
     }
 
     @objc(createUserWithEmail:password:)
     public static func createUser(email: String, password: String) -> String {
         return awaitAuth { completion in
-            Auth.auth().createUser(withEmail: email.trimmingCharacters(in: .whitespacesAndNewlines),
-                                   password: password,
-                                   completion: completion)
+            auth.createUser(withEmail: email.trimmingCharacters(in: .whitespacesAndNewlines),
+                            password: password,
+                            completion: completion)
         }
     }
 
     @objc(updateDisplayName:)
     public static func updateDisplayName(_ displayName: String) -> String {
-        guard let user = Auth.auth().currentUser else {
+        guard let user = auth.currentUser else {
             return err("requires-recent-login", "no current user")
         }
         let change = user.createProfileChangeRequest()
@@ -88,15 +104,15 @@ public class DioxusFirebaseAuthHost: NSObject {
     @objc(sendPasswordResetEmail:)
     public static func sendPasswordResetEmail(_ email: String) -> String {
         return awaitVoid { completion in
-            Auth.auth().sendPasswordReset(withEmail: email.trimmingCharacters(in: .whitespacesAndNewlines),
-                                          completion: completion)
+            auth.sendPasswordReset(withEmail: email.trimmingCharacters(in: .whitespacesAndNewlines),
+                                   completion: completion)
         }
     }
 
     @objc(signOut)
     public static func signOut() -> String {
         do {
-            try Auth.auth().signOut()
+            try auth.signOut()
             return ok()
         } catch {
             return mapError(error)
@@ -105,12 +121,12 @@ public class DioxusFirebaseAuthHost: NSObject {
 
     @objc(currentUser)
     public static func currentUser() -> String {
-        return okUser(Auth.auth().currentUser)
+        return okUser(auth.currentUser)
     }
 
     @objc(idTokenWithForceRefresh:)
     public static func idToken(forceRefresh: Bool) -> String {
-        guard let user = Auth.auth().currentUser else {
+        guard let user = auth.currentUser else {
             return ok()
         }
         return awaitReply { finish in
@@ -128,8 +144,8 @@ public class DioxusFirebaseAuthHost: NSObject {
 
     @objc(useEmulatorWithHost:port:)
     public static func useEmulator(host: String, port: UInt32) -> String {
-        Auth.auth().useEmulator(withHost: host.trimmingCharacters(in: .whitespacesAndNewlines),
-                                port: Int(port))
+        auth.useEmulator(withHost: host.trimmingCharacters(in: .whitespacesAndNewlines),
+                         port: Int(port))
         return ok()
     }
 
@@ -137,13 +153,21 @@ public class DioxusFirebaseAuthHost: NSObject {
     @objc(subscribeAuthStateWithCallback:)
     public static func subscribeAuthState(callback: UnsafeRawPointer) -> String {
         let fn = unsafeBitCast(callback, to: (@convention(c) (UnsafePointer<CChar>?) -> Void).self)
+        let alreadySubscribed: Bool
+        subscribeLock.lock()
         rustCallback = fn
         if authListenerHandle == nil {
-            authListenerHandle = Auth.auth().addStateDidChangeListener { _, user in
+            authListenerHandle = auth.addStateDidChangeListener { _, user in
                 notifyRust(user)
             }
+            alreadySubscribed = false
         } else {
-            notifyRust(Auth.auth().currentUser)
+            alreadySubscribed = true
+        }
+        subscribeLock.unlock()
+
+        if alreadySubscribed {
+            notifyRust(auth.currentUser)
         }
         return ok()
     }
@@ -165,7 +189,7 @@ public class DioxusFirebaseAuthHost: NSObject {
                 if let error = error {
                     finish(mapError(error))
                 } else {
-                    finish(okUser(result?.user ?? Auth.auth().currentUser))
+                    finish(okUser(result?.user ?? auth.currentUser))
                 }
             }
         }
@@ -219,15 +243,60 @@ public class DioxusFirebaseAuthHost: NSObject {
     }
 
     private static func mapError(_ error: Error) -> String {
-        let ns = error as NSError
-        if ns.domain == AuthErrorDomain {
-            let code = authWireCode(ns.code)
-            return err(code, ns.localizedDescription)
+        if let host = error as? HostError {
+            switch host {
+            case .mainThreadTimeout:
+                return err("native", "timed out waiting for main thread")
+            }
         }
+        var cur: NSError? = error as NSError
+        while let ns = cur {
+            if ns.domain == AuthErrorDomain {
+                let code = toWireCode(from: ns)
+                let message = authErrorMessage(ns)
+                return err(code, message)
+            }
+            cur = ns.userInfo[NSUnderlyingErrorKey] as? NSError
+        }
+        let ns = error as NSError
         return err("native", ns.localizedDescription)
     }
 
-    private static func authWireCode(_ code: Int) -> String {
+    /// Prefer the user-facing failure reason (e.g. weak-password detail).
+    private static func authErrorMessage(_ ns: NSError) -> String {
+        if let reason = ns.userInfo[NSLocalizedFailureReasonErrorKey] as? String,
+           !reason.isEmpty {
+            return reason
+        }
+        return ns.localizedDescription
+    }
+
+    /// Normalize cross-platform Auth error names like Android `toWireCode`.
+    private static func toWireCode(from ns: NSError) -> String {
+        if let name = ns.userInfo[AuthErrorUserInfoNameKey] as? String {
+            return normalizeWireCode(name)
+        }
+        return authWireCodeFallback(ns.code)
+    }
+
+    private static func normalizeWireCode(_ raw: String) -> String {
+        var normalized = raw
+        if normalized.hasPrefix("ERROR_") {
+            normalized = String(normalized.dropFirst("ERROR_".count))
+        }
+        normalized = normalized.lowercased().replacingOccurrences(of: "_", with: "-")
+        switch normalized {
+        case "wrong-password", "user-not-found":
+            return "invalid-credential"
+        case "":
+            return "unknown"
+        default:
+            return normalized
+        }
+    }
+
+    /// Fallback when `AuthErrorUserInfoNameKey` is absent.
+    private static func authWireCodeFallback(_ code: Int) -> String {
         guard let authCode = AuthErrorCode.Code(rawValue: code) else {
             return "unknown"
         }
@@ -257,14 +326,34 @@ public class DioxusFirebaseAuthHost: NSObject {
         }
     }
 
-    private static func runOnMainSync<T>(_ block: () -> T) -> T {
+    private enum HostError: Error {
+        case mainThreadTimeout
+    }
+
+    private static func runOnMainSync<T>(_ block: () throws -> T) throws -> T {
         if Thread.isMainThread {
-            return block()
+            return try block()
         }
-        var result: T!
-        DispatchQueue.main.sync {
-            result = block()
+        let semaphore = DispatchSemaphore(value: 0)
+        var result: Result<T, Error>?
+        DispatchQueue.main.async {
+            do {
+                result = .success(try block())
+            } catch {
+                result = .failure(error)
+            }
+            semaphore.signal()
         }
-        return result
+        if semaphore.wait(timeout: .now() + waitTimeout) == .timedOut {
+            throw HostError.mainThreadTimeout
+        }
+        switch result {
+        case .success(let value):
+            return value
+        case .failure(let error):
+            throw error
+        case .none:
+            throw HostError.mainThreadTimeout
+        }
     }
 }
