@@ -17,9 +17,28 @@ fn main() {
     launch(app);
 }
 
+/// Run a blocking Auth call off the UI thread, then apply the result on the Dioxus runtime.
+fn spawn_auth<T, F, A>(work: F, apply: A)
+where
+    T: Send + 'static,
+    F: FnOnce() -> T + Send + 'static,
+    A: FnOnce(T) + 'static,
+{
+    spawn(async move {
+        let (tx, rx) = tokio::sync::oneshot::channel();
+        std::thread::spawn(move || {
+            let _ = tx.send(work());
+        });
+        if let Ok(value) = rx.await {
+            apply(value);
+        }
+    });
+}
+
 fn app() -> Element {
     // Dioxus reactive signals
     let mut auth_state = use_signal(|| AuthState::Uninitialized);
+    let mut auth_subscription = use_signal(|| None::<AuthStateSubscription>);
     let mut status_message = use_signal(|| String::from("Initializing..."));
     let mut email = use_signal(|| String::from("user@example.com"));
     let mut password = use_signal(|| String::from("Secret123!"));
@@ -48,7 +67,9 @@ fn app() -> Element {
                 match subscribe_auth_state(move |user| {
                     let _ = tx.send(user);
                 }) {
-                    Ok(_sub) => {
+                    Ok(sub) => {
+                        // Keep the guard alive; dropping it clears the listener.
+                        auth_subscription.set(Some(sub));
                         status_message.set("Firebase Auth initialized & subscribed.".into());
 
                         // Fetch initial user session state immediately
@@ -128,20 +149,36 @@ fn app() -> Element {
                             button {
                                 style: "flex: 1; padding: 10px; background: #0066cc; color: white; border: none; border-radius: 4px;",
                                 onclick: move |_| {
-                                    match sign_in_with_email(email.read().as_str(), password.read().as_str()) {
-                                        Ok(user) => status_message.set(format!("Signed in user: {}", user.uid)),
-                                        Err(err) => status_message.set(format!("Sign in error: {err}")),
-                                    }
+                                    let email = email.read().clone();
+                                    let password = password.read().clone();
+                                    spawn_auth(
+                                        move || sign_in_with_email(email, password),
+                                        move |result| match result {
+                                            Ok(user) => status_message.set(format!(
+                                                "Signed in user: {}",
+                                                user.uid
+                                            )),
+                                            Err(err) => status_message
+                                                .set(format!("Sign in error: {err}")),
+                                        },
+                                    );
                                 },
                                 "Sign In"
                             }
                             button {
                                 style: "flex: 1; padding: 10px; background: #28a745; color: white; border: none; border-radius: 4px;",
                                 onclick: move |_| {
-                                    match create_user_with_email(email.read().as_str(), password.read().as_str()) {
-                                        Ok(user) => status_message.set(format!("Created user: {}", user.uid)),
-                                        Err(err) => status_message.set(format!("Sign up error: {err}")),
-                                    }
+                                    let email = email.read().clone();
+                                    let password = password.read().clone();
+                                    spawn_auth(
+                                        move || create_user_with_email(email, password),
+                                        move |result| match result {
+                                            Ok(user) => status_message
+                                                .set(format!("Created user: {}", user.uid)),
+                                            Err(err) => status_message
+                                                .set(format!("Sign up error: {err}")),
+                                        },
+                                    );
                                 },
                                 "Sign Up"
                             }
@@ -170,10 +207,16 @@ fn app() -> Element {
                         button {
                             style: "padding: 8px; background: #17a2b8; color: white; border: none; border-radius: 4px;",
                             onclick: move |_| {
-                                match update_display_name(display_name.read().as_str()) {
-                                    Ok(()) => status_message.set("Display name updated successfully!".into()),
-                                    Err(err) => status_message.set(format!("Profile update failed: {err}")),
-                                }
+                                let display_name = display_name.read().clone();
+                                spawn_auth(
+                                    move || update_display_name(display_name),
+                                    move |result| match result {
+                                        Ok(()) => status_message
+                                            .set("Display name updated successfully!".into()),
+                                        Err(err) => status_message
+                                            .set(format!("Profile update failed: {err}")),
+                                    },
+                                );
                             },
                             "Update Display Name"
                         }
@@ -181,11 +224,19 @@ fn app() -> Element {
                         button {
                             style: "padding: 8px; background: #6c757d; color: white; border: none; border-radius: 4px;",
                             onclick: move |_| {
-                                match id_token(true) {
-                                    Ok(Some(token)) => status_message.set(format!("ID Token (len {}): {}...", token.len(), &token[..token.len().min(15)])),
-                                    Ok(None) => status_message.set("No ID Token returned.".into()),
-                                    Err(err) => status_message.set(format!("Fetch token error: {err}")),
-                                }
+                                spawn_auth(move || id_token(true), move |result| match result {
+                                    Ok(Some(token)) => status_message.set(format!(
+                                        "ID Token (len {}): {}...",
+                                        token.len(),
+                                        &token[..token.len().min(15)]
+                                    )),
+                                    Ok(None) => {
+                                        status_message.set("No ID Token returned.".into())
+                                    }
+                                    Err(err) => {
+                                        status_message.set(format!("Fetch token error: {err}"))
+                                    }
+                                });
                             },
                             "Fetch Fresh ID Token"
                         }
@@ -193,9 +244,11 @@ fn app() -> Element {
                         button {
                             style: "padding: 8px; background: #dc3545; color: white; border: none; border-radius: 4px; margin-top: 10px;",
                             onclick: move |_| {
-                                if let Err(err) = sign_out() {
-                                    status_message.set(format!("Sign out error: {err}"));
-                                }
+                                spawn_auth(sign_out, move |result| {
+                                    if let Err(err) = result {
+                                        status_message.set(format!("Sign out error: {err}"));
+                                    }
+                                });
                             },
                             "Sign Out"
                         }
