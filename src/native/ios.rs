@@ -17,6 +17,8 @@ use crate::host_protocol::{parse_optional_string, parse_optional_user, parse_use
 use crate::subscribe;
 use crate::user::User;
 
+const HOST_CLASS_NAME: &str = "DioxusFirebaseAuthHost";
+
 pub(crate) fn initialize(options: &FirebaseOptions) -> Result<(), FirebaseError> {
     let host = host_class()?;
     let api_key = nsstring(&options.api_key)?;
@@ -117,9 +119,11 @@ pub unsafe extern "C" fn dioxus_firebase_auth_state_changed(json: *const c_char)
 }
 
 fn host_class() -> Result<&'static Class, FirebaseError> {
-    Class::get("DioxusFirebaseAuthHost").ok_or_else(|| {
+    Class::get(HOST_CLASS_NAME).ok_or_else(|| {
         FirebaseError::HostMissing(
-            "DioxusFirebaseAuthHost not found. Compile ios/DioxusFirebaseAuthHost.swift into the iOS app and link FirebaseAuth.".into(),
+            format!(
+                "{HOST_CLASS_NAME} not found. Compile ios/DioxusFirebaseAuthHost.swift into the iOS app and link FirebaseAuth."
+            ),
         )
     })
 }
@@ -169,4 +173,86 @@ fn nsstring_to_rust(s: *mut Object) -> Option<String> {
         .to_str()
         .ok()
         .map(str::to_owned)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use rstest::rstest;
+
+    #[rstest]
+    fn test_host_class_name() {
+        assert_eq!(HOST_CLASS_NAME, "DioxusFirebaseAuthHost");
+    }
+
+    #[rstest]
+    fn test_host_class_returns_host_missing_without_swift_host() {
+        let err = host_class().expect_err("must fail without Swift host");
+        assert!(
+            matches!(err, FirebaseError::HostMissing(ref msg) if msg.contains(HOST_CLASS_NAME)),
+            "unexpected error: {err:?}"
+        );
+    }
+
+    #[rstest]
+    fn test_primitives_return_host_missing_when_host_absent() {
+        let opts = FirebaseOptions {
+            api_key: "key".into(),
+            app_id: "app".into(),
+            project_id: "project".into(),
+            messaging_sender_id: None,
+            storage_bucket: None,
+            database_url: None,
+        };
+
+        assert!(matches!(
+            initialize(&opts).unwrap_err(),
+            FirebaseError::HostMissing(_)
+        ));
+        assert!(matches!(
+            sign_in_with_email("a@b.c", "pass").unwrap_err(),
+            FirebaseError::HostMissing(_)
+        ));
+        assert!(matches!(
+            create_user_with_email("a@b.c", "pass").unwrap_err(),
+            FirebaseError::HostMissing(_)
+        ));
+        assert!(matches!(
+            update_display_name("Ada").unwrap_err(),
+            FirebaseError::HostMissing(_)
+        ));
+        assert!(matches!(
+            send_password_reset_email("a@b.c").unwrap_err(),
+            FirebaseError::HostMissing(_)
+        ));
+        assert!(matches!(
+            sign_out().unwrap_err(),
+            FirebaseError::HostMissing(_)
+        ));
+        assert!(matches!(
+            current_user().unwrap_err(),
+            FirebaseError::HostMissing(_)
+        ));
+        assert!(matches!(
+            id_token(false).unwrap_err(),
+            FirebaseError::HostMissing(_)
+        ));
+        assert!(matches!(
+            use_emulator("127.0.0.1", 9099).unwrap_err(),
+            FirebaseError::HostMissing(_)
+        ));
+        assert!(matches!(
+            subscribe_auth_state().unwrap_err(),
+            FirebaseError::HostMissing(_)
+        ));
+    }
+
+    #[rstest]
+    fn test_nsstring_rejects_interior_nul() {
+        let err = nsstring("a\0b").expect_err("interior NUL must fail");
+        assert!(matches!(
+            err,
+            FirebaseError::Native { message } if message.contains("interior NUL")
+        ));
+    }
 }

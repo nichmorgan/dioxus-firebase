@@ -139,6 +139,15 @@ cargo ndk -t arm64-v8a test --lib
 
 The on-device Auth lifecycle test needs an app process with the Kotlin host. A raw `cargo` or `cross` test process hits `HostMissing` and returns early.
 
+iOS `--lib` tests use the same simulator target as CI. They run without the Swift host and expect `HostMissing`. They do not execute [`tests/ios/mod.rs`](tests/ios/mod.rs).
+
+```bash
+rustup target add aarch64-apple-ios-sim
+cargo test --lib --target aarch64-apple-ios-sim
+```
+
+On a Mac, boot a simulator first (CI does this with `xcrun simctl`) or set `CARGO_TARGET_AARCH64_APPLE_IOS_SIM_RUNNER` to `xcrun simctl spawn booted`.
+
 ## Demo
 
 [`examples/demo.rs`](examples/demo.rs) signs in against the Auth emulator at `10.0.2.2:9099` (see [Emulator](#emulator); no `adb reverse`). Start the emulator, then serve the example on Android:
