@@ -57,7 +57,58 @@ fn android_prop(name: &str) -> String {
 }
 
 fn main() {
+    install_panic_hook();
     launch(app);
+}
+
+/// Maestro uploads the simulator log, not stderr. A panic under tao's
+/// `extern "C"` run-loop observer aborts before that stderr is captured.
+#[cfg(target_os = "ios")]
+fn install_panic_hook() {
+    let default_hook = std::panic::take_hook();
+    std::panic::set_hook(Box::new(move |info| {
+        let backtrace = std::backtrace::Backtrace::force_capture();
+        nslog(&format!("dioxus-firebase demo panic: {info}\n{backtrace}"));
+        default_hook(info);
+    }));
+}
+
+#[cfg(not(target_os = "ios"))]
+fn install_panic_hook() {}
+
+#[cfg(target_os = "ios")]
+fn nslog(message: &str) {
+    use std::os::raw::c_char;
+
+    use objc::runtime::Object;
+    use objc::{class, msg_send, sel, sel_impl};
+
+    #[link(name = "Foundation", kind = "framework")]
+    extern "C" {
+        fn NSLog(format: *mut Object, ...);
+    }
+
+    let bytes = message.as_bytes();
+    unsafe {
+        let format: *mut Object = msg_send![
+            class!(NSString),
+            stringWithUTF8String: b"%@\0".as_ptr() as *const c_char
+        ];
+        let alloc: *mut Object = msg_send![class!(NSString), alloc];
+        if format.is_null() || alloc.is_null() {
+            return;
+        }
+        let ns_message: *mut Object = msg_send![
+            alloc,
+            initWithBytes: bytes.as_ptr()
+            length: bytes.len()
+            encoding: 4usize // NSUTF8StringEncoding
+        ];
+        if ns_message.is_null() {
+            return;
+        }
+        NSLog(format, ns_message);
+    }
 }
 
 /// Run a blocking Auth call off the UI thread, then apply the result on the Dioxus runtime.
