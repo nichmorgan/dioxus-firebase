@@ -1,0 +1,23 @@
+appId: com.example.demo
+---
+- launchApp:
+      clearState: true
+- extendedWaitUntil:
+      visible:
+          text: "Firebase Auth initialized & subscribed."
+          childOf:
+              id: "auth-status"
+      timeout: 60000
+- tapOn:
+      id: "sign-up"
+      text: "Sign Up"
+- extendedWaitUntil:
+      visible: "User Account"
+      timeout: 30000
+- assertVisible: "Created user:.*"
+- tapOn:
+      id: "update-display-name"
+      text: "Update Display Name"
+- extendedWaitUntil:
+      visible: "Display name updated successfully!"
+      timeout: 30000

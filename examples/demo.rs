@@ -14,6 +14,48 @@ enum AuthState {
     SignedIn(User),
 }
 
+/// Auth emulator host for this process.
+///
+/// The Android emulator aliases the development machine as `10.0.2.2`. A physical
+/// Android device uses `127.0.0.1` after `adb reverse tcp:9099 tcp:9099`. The iOS
+/// simulator shares the host loopback.
+fn auth_emulator_host() -> &'static str {
+    if android_emulator() {
+        "10.0.2.2"
+    } else {
+        "127.0.0.1"
+    }
+}
+
+/// `ro.boot.qemu=1`, or goldfish/ranchu hardware, means this is the Android emulator.
+fn android_emulator() -> bool {
+    #[cfg(target_os = "android")]
+    {
+        let qemu = android_prop("ro.boot.qemu");
+        let hardware = android_prop("ro.hardware");
+        qemu == "1" || hardware.contains("ranchu") || hardware.contains("goldfish")
+    }
+    #[cfg(not(target_os = "android"))]
+    {
+        false
+    }
+}
+
+/// `PROP_VALUE_MAX` is 92. `__system_property_get` returns the length excluding the NUL.
+#[cfg(target_os = "android")]
+fn android_prop(name: &str) -> String {
+    let mut value = [0u8; 92];
+    let Ok(name) = std::ffi::CString::new(name) else {
+        return String::new();
+    };
+    let len = unsafe { libc::__system_property_get(name.as_ptr(), value.as_mut_ptr().cast()) };
+    if len <= 0 {
+        return String::new();
+    }
+    let len = (len as usize).min(value.len());
+    String::from_utf8_lossy(&value[..len]).into_owned()
+}
+
 fn main() {
     launch(app);
 }
@@ -58,8 +100,8 @@ fn app() -> Element {
 
         match initialize(options) {
             Ok(()) => {
-                // Connect to local Firebase Auth Emulator if running
-                let _ = use_emulator("10.0.2.2", 9099);
+                // Host is 10.0.2.2 on the Android emulator and 127.0.0.1 on a USB device.
+                let _ = use_emulator(auth_emulator_host(), 9099);
 
                 // Channel to bridge native background callback -> Dioxus UI signal
                 let (tx, mut rx) = tokio::sync::mpsc::unbounded_channel::<Option<User>>();
@@ -116,7 +158,9 @@ fn app() -> Element {
 
             h2 { "Dioxus Firebase Auth Demo" }
 
-            div { style: "background: #eef2f5; padding: 10px; border-radius: 6px; margin-bottom: 20px;",
+            div {
+                id: "auth-status",
+                style: "background: #eef2f5; padding: 10px; border-radius: 6px; margin-bottom: 20px;",
                 strong { "Status: " }
                 "{status_message}"
             }
@@ -144,6 +188,7 @@ fn app() -> Element {
 
                         div { style: "display: flex; gap: 10px;",
                             button {
+                                id: "sign-in",
                                 style: "flex: 1; padding: 10px; background: #0066cc; color: white; border: none; border-radius: 4px;",
                                 onclick: move |_| {
                                     let email = email.read().clone();
@@ -159,6 +204,7 @@ fn app() -> Element {
                                 "Sign In"
                             }
                             button {
+                                id: "sign-up",
                                 style: "flex: 1; padding: 10px; background: #28a745; color: white; border: none; border-radius: 4px;",
                                 onclick: move |_| {
                                     let email = email.read().clone();
@@ -206,6 +252,7 @@ fn app() -> Element {
                         }
 
                         button {
+                            id: "update-display-name",
                             style: "padding: 8px; background: #17a2b8; color: white; border: none; border-radius: 4px;",
                             onclick: move |_| {
                                 let display_name = display_name.read().clone();
@@ -247,6 +294,7 @@ fn app() -> Element {
                         }
 
                         button {
+                            id: "sign-out",
                             style: "padding: 8px; background: #dc3545; color: white; border: none; border-radius: 4px; margin-top: 10px;",
                             onclick: move |_| {
                                 spawn_auth(
