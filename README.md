@@ -113,10 +113,13 @@ Dioxus CLI's generated network-security config only allows cleartext HTTP to `12
 2. Build with **Dioxus CLI 0.7+** (`dx`). The crate ships a Gradle library under [`android/`](android/) and emits manganis Android artifact metadata so `dx` embeds the Kotlin host automatically — **no copy/paste of Kotlin**.
 3. The plugin module depends on `com.google.firebase:firebase-auth` via the Firebase BoM.
 
-### iOS app deps
+### iOS (Dioxus CLI 0.7+)
 
-1. Add [Firebase iOS SDK](https://github.com/firebase/firebase-ios-sdk) via Swift Package Manager and link **FirebaseAuth** (and **FirebaseCore**).
-2. Compile [`ios/DioxusFirebaseAuthHost.swift`](ios/DioxusFirebaseAuthHost.swift) from this crate into your Dioxus iOS target (copy or path reference in Xcode / your `dx` mobile project).
+1. Depend on this crate (`path` / git).
+2. Build with **Dioxus CLI 0.7+** (`dx`). The crate ships a Swift package under [`ios/`](ios/) and emits manganis Swift package metadata so `dx` compiles and embeds the host automatically — **no copy/paste of Swift**.
+3. The package depends on **FirebaseAuth** and **FirebaseCore** (Firebase iOS SDK 11.15.0).
+
+`HostMissing` means this process was not built with `dx`, so the Swift framework was never loaded. A non-`dx` build can add the local package [`ios/`](ios/) in Xcode (product `DioxusFirebaseAuthHost`); that package already depends on FirebaseAuth and FirebaseCore.
 
 ## Testing
 
@@ -139,7 +142,7 @@ cargo ndk -t arm64-v8a test --lib
 
 The on-device Auth lifecycle test needs an app process with the Kotlin host. A raw `cargo` or `cross` test process hits `HostMissing` and returns early.
 
-iOS `--lib` tests use the same simulator target as CI. They run without the Swift host and expect `HostMissing`. They do not execute [`tests/ios/mod.rs`](tests/ios/mod.rs).
+iOS `--lib` tests use the same simulator target as CI. They run without the Swift host and expect `HostMissing`. They do not execute [`tests/ios/mod.rs`](tests/ios/mod.rs). The `ios-host` job builds the demo with `dx` and checks that `DioxusFirebaseAuthHost` loads from the embedded framework.
 
 ```bash
 rustup target add aarch64-apple-ios-sim
@@ -150,11 +153,12 @@ On a Mac, boot a simulator first (CI does this with `xcrun simctl`) or set `CARG
 
 ## Demo
 
-[`examples/demo.rs`](examples/demo.rs) signs in against the Auth emulator at `10.0.2.2:9099` (see [Emulator](#emulator); no `adb reverse`). Start the emulator, then serve the example on Android:
+[`examples/demo.rs`](examples/demo.rs) signs in against the Auth emulator at `10.0.2.2:9099` (see [Emulator](#emulator); no `adb reverse`). Start the emulator, then serve the example:
 
 ```bash
 npx -y firebase-tools emulators:start --only auth
 dx serve --example demo --platform android
+dx serve --example demo --platform ios
 ```
 
 ## License

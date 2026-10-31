@@ -2,6 +2,7 @@
 //!
 //! Start the Auth emulator, then:
 //! `dx serve --example demo --platform android`
+//! `dx serve --example demo --platform ios`
 
 use dioxus::prelude::*;
 use dioxus_firebase::prelude::*;
@@ -111,13 +112,11 @@ fn app() -> Element {
     });
 
     rsx! {
-        div {
-            style: "padding: 20px; font-family: sans-serif; max-width: 480px; margin: 0 auto;",
+        div { style: "padding: 20px; font-family: sans-serif; max-width: 480px; margin: 0 auto;",
 
             h2 { "Dioxus Firebase Auth Demo" }
 
-            div {
-                style: "background: #eef2f5; padding: 10px; border-radius: 6px; margin-bottom: 20px;",
+            div { style: "background: #eef2f5; padding: 10px; border-radius: 6px; margin-bottom: 20px;",
                 strong { "Status: " }
                 "{status_message}"
             }
@@ -127,25 +126,23 @@ fn app() -> Element {
                     p { "Connecting to Firebase Native Bridge..." }
                 },
                 AuthState::SignedOut => rsx! {
-                    div {
-                        style: "display: flex; flex-direction: column; gap: 12px;",
+                    div { style: "display: flex; flex-direction: column; gap: 12px;",
                         h3 { "Sign In / Register" }
 
                         input {
                             r#type: "email",
                             placeholder: "Email address",
                             value: "{email}",
-                            oninput: move |e| email.set(e.value())
+                            oninput: move |e| email.set(e.value()),
                         }
                         input {
                             r#type: "password",
                             placeholder: "Password",
                             value: "{password}",
-                            oninput: move |e| password.set(e.value())
+                            oninput: move |e| password.set(e.value()),
                         }
 
-                        div {
-                            style: "display: flex; gap: 10px;",
+                        div { style: "display: flex; gap: 10px;",
                             button {
                                 style: "flex: 1; padding: 10px; background: #0066cc; color: white; border: none; border-radius: 4px;",
                                 onclick: move |_| {
@@ -154,12 +151,8 @@ fn app() -> Element {
                                     spawn_auth(
                                         move || sign_in_with_email(email, password),
                                         move |result| match result {
-                                            Ok(user) => status_message.set(format!(
-                                                "Signed in user: {}",
-                                                user.uid
-                                            )),
-                                            Err(err) => status_message
-                                                .set(format!("Sign in error: {err}")),
+                                            Ok(user) => status_message.set(format!("Signed in user: {}", user.uid)),
+                                            Err(err) => status_message.set(format!("Sign in error: {err}")),
                                         },
                                     );
                                 },
@@ -186,13 +179,21 @@ fn app() -> Element {
                     }
                 },
                 AuthState::SignedIn(user) => rsx! {
-                    div {
-                        style: "display: flex; flex-direction: column; gap: 10px;",
+                    div { style: "display: flex; flex-direction: column; gap: 10px;",
                         h3 { "User Account" }
 
-                        p { strong { "UID: " } "{user.uid}" }
-                        p { strong { "Email: " } "{user.email.as_deref().unwrap_or(\"N/A\")}" }
-                        p { strong { "Display Name: " } "{user.display_name.as_deref().unwrap_or(\"N/A\")}" }
+                        p {
+                            strong { "UID: " }
+                            "{user.uid}"
+                        }
+                        p {
+                            strong { "Email: " }
+                            "{user.email.as_deref().unwrap_or(\"N/A\")}"
+                        }
+                        p {
+                            strong { "Display Name: " }
+                            "{user.display_name.as_deref().unwrap_or(\"N/A\")}"
+                        }
 
                         hr {}
 
@@ -201,7 +202,7 @@ fn app() -> Element {
                             r#type: "text",
                             placeholder: "Display Name",
                             value: "{display_name}",
-                            oninput: move |e| display_name.set(e.value())
+                            oninput: move |e| display_name.set(e.value()),
                         }
 
                         button {
@@ -224,19 +225,23 @@ fn app() -> Element {
                         button {
                             style: "padding: 8px; background: #6c757d; color: white; border: none; border-radius: 4px;",
                             onclick: move |_| {
-                                spawn_auth(move || id_token(true), move |result| match result {
-                                    Ok(Some(token)) => status_message.set(format!(
-                                        "ID Token (len {}): {}...",
-                                        token.len(),
-                                        &token[..token.len().min(15)]
-                                    )),
-                                    Ok(None) => {
-                                        status_message.set("No ID Token returned.".into())
-                                    }
-                                    Err(err) => {
-                                        status_message.set(format!("Fetch token error: {err}"))
-                                    }
-                                });
+                                spawn_auth(
+                                    move || id_token(true),
+                                    move |result| match result {
+                                        Ok(Some(token)) => {
+                                            status_message
+                                                .set(
+                                                    format!(
+                                                        "ID Token (len {}): {}...",
+                                                        token.len(),
+                                                        &token[..token.len().min(15)],
+                                                    ),
+                                                )
+                                        }
+                                        Ok(None) => status_message.set("No ID Token returned.".into()),
+                                        Err(err) => status_message.set(format!("Fetch token error: {err}")),
+                                    },
+                                );
                             },
                             "Fetch Fresh ID Token"
                         }
@@ -244,16 +249,19 @@ fn app() -> Element {
                         button {
                             style: "padding: 8px; background: #dc3545; color: white; border: none; border-radius: 4px; margin-top: 10px;",
                             onclick: move |_| {
-                                spawn_auth(sign_out, move |result| {
-                                    if let Err(err) = result {
-                                        status_message.set(format!("Sign out error: {err}"));
-                                    }
-                                });
+                                spawn_auth(
+                                    sign_out,
+                                    move |result| {
+                                        if let Err(err) = result {
+                                            status_message.set(format!("Sign out error: {err}"));
+                                        }
+                                    },
+                                );
                             },
                             "Sign Out"
                         }
                     }
-                }
+                },
             }
         }
     }

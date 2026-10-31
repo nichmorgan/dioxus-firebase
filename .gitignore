@@ -7,6 +7,9 @@ Cargo.lock
 build/
 android/local.properties
 
+# Swift package build (local `swift build` of ios/)
+ios/.build/
+
 # IDE & OS
 .idea/
 .DS_Store
@@ -18,3 +21,6 @@ firebase-debug.log
 
 # Secrets
 .infisical.json
+
+# Cursor state
+.cursor/hooks/state/

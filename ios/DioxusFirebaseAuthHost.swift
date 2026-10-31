@@ -4,8 +4,8 @@ import FirebaseAuth
 
 /// Thin ObjC-visible host so Rust can call Firebase Auth via `objc`.
 ///
-/// Compile this file into your Dioxus iOS target and add Firebase iOS SDK
-/// (SPM: https://github.com/firebase/firebase-ios-sdk — FirebaseAuth).
+/// Dioxus CLI 0.7+ compiles this Swift package into the iOS app. The package
+/// depends on FirebaseAuth and FirebaseCore. Apps do not copy this file.
 ///
 /// Reply protocol (matches Rust `host_protocol`):
 /// - success void: `OK`
