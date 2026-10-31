@@ -330,7 +330,7 @@ public class DioxusFirebaseAuthHost: NSObject {
         case mainThreadTimeout
     }
 
-    private static func runOnMainSync<T>(_ block: () throws -> T) throws -> T {
+    private static func runOnMainSync<T>(_ block: @escaping () throws -> T) throws -> T {
         if Thread.isMainThread {
             return try block()
         }
