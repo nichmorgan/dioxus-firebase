@@ -297,7 +297,7 @@ public class DioxusFirebaseAuthHost: NSObject {
 
     /// Fallback when `AuthErrorUserInfoNameKey` is absent.
     private static func authWireCodeFallback(_ code: Int) -> String {
-        guard let authCode = AuthErrorCode.Code(rawValue: code) else {
+        guard let authCode = AuthErrorCode(rawValue: code) else {
             return "unknown"
         }
         switch authCode {
