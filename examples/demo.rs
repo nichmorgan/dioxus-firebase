@@ -4,6 +4,9 @@
 //! `dx serve --example demo --platform android`
 //! `dx serve --example demo --platform ios`
 
+#[cfg(target_os = "android")]
+use std::ffi::CStr;
+
 use dioxus::prelude::*;
 use dioxus_firebase::prelude::*;
 
@@ -27,51 +30,37 @@ enum AuthState {
 }
 
 /// Firebase iOS rejects an app id whose platform field is not `ios`.
-fn demo_app_id() -> &'static str {
-    #[cfg(target_os = "ios")]
-    {
-        "1:123456789:ios:0123456789abcdef"
-    }
-    #[cfg(not(target_os = "ios"))]
-    {
-        "1:123456789:android:demo"
-    }
-}
+const DEMO_APP_ID: &str = if cfg!(target_os = "ios") {
+    "1:123456789:ios:0123456789abcdef"
+} else {
+    "1:123456789:android:demo"
+};
 
 /// Auth emulator host for this process.
 ///
 /// The Android emulator aliases the development machine as `10.0.2.2`. A physical
 /// Android device uses `127.0.0.1` after `adb reverse tcp:9099 tcp:9099`. The iOS
 /// simulator shares the host loopback.
+#[cfg(target_os = "android")]
 fn auth_emulator_host() -> &'static str {
-    if android_emulator() {
+    let qemu = android_prop(c"ro.boot.qemu");
+    let hardware = android_prop(c"ro.hardware");
+    if qemu == "1" || hardware.contains("ranchu") || hardware.contains("goldfish") {
         "10.0.2.2"
     } else {
         "127.0.0.1"
     }
 }
 
-/// `ro.boot.qemu=1`, or goldfish/ranchu hardware, means this is the Android emulator.
-fn android_emulator() -> bool {
-    #[cfg(target_os = "android")]
-    {
-        let qemu = android_prop("ro.boot.qemu");
-        let hardware = android_prop("ro.hardware");
-        qemu == "1" || hardware.contains("ranchu") || hardware.contains("goldfish")
-    }
-    #[cfg(not(target_os = "android"))]
-    {
-        false
-    }
+#[cfg(not(target_os = "android"))]
+fn auth_emulator_host() -> &'static str {
+    "127.0.0.1"
 }
 
 /// `PROP_VALUE_MAX` is 92. `__system_property_get` returns the length excluding the NUL.
 #[cfg(target_os = "android")]
-fn android_prop(name: &str) -> String {
+fn android_prop(name: &CStr) -> String {
     let mut value = [0u8; 92];
-    let Ok(name) = std::ffi::CString::new(name) else {
-        return String::new();
-    };
     let len = unsafe { libc::__system_property_get(name.as_ptr(), value.as_mut_ptr().cast()) };
     if len <= 0 {
         return String::new();
@@ -81,58 +70,7 @@ fn android_prop(name: &str) -> String {
 }
 
 fn main() {
-    install_panic_hook();
     launch(app);
-}
-
-/// Maestro uploads the simulator log, not stderr. A panic under tao's
-/// `extern "C"` run-loop observer aborts before that stderr is captured.
-#[cfg(target_os = "ios")]
-fn install_panic_hook() {
-    let default_hook = std::panic::take_hook();
-    std::panic::set_hook(Box::new(move |info| {
-        let backtrace = std::backtrace::Backtrace::force_capture();
-        nslog(&format!("dioxus-firebase demo panic: {info}\n{backtrace}"));
-        default_hook(info);
-    }));
-}
-
-#[cfg(not(target_os = "ios"))]
-fn install_panic_hook() {}
-
-#[cfg(target_os = "ios")]
-fn nslog(message: &str) {
-    use std::os::raw::c_char;
-
-    use objc::runtime::Object;
-    use objc::{class, msg_send, sel, sel_impl};
-
-    #[link(name = "Foundation", kind = "framework")]
-    extern "C" {
-        fn NSLog(format: *mut Object, ...);
-    }
-
-    let bytes = message.as_bytes();
-    unsafe {
-        let format: *mut Object = msg_send![
-            class!(NSString),
-            stringWithUTF8String: b"%@\0".as_ptr() as *const c_char
-        ];
-        let alloc: *mut Object = msg_send![class!(NSString), alloc];
-        if format.is_null() || alloc.is_null() {
-            return;
-        }
-        let ns_message: *mut Object = msg_send![
-            alloc,
-            initWithBytes: bytes.as_ptr()
-            length: bytes.len()
-            encoding: 4usize // NSUTF8StringEncoding
-        ];
-        if ns_message.is_null() {
-            return;
-        }
-        NSLog(format, ns_message);
-    }
 }
 
 /// Run a blocking Auth call off the UI thread, then apply the result on the Dioxus runtime.
@@ -166,7 +104,7 @@ fn app() -> Element {
     use_effect(move || {
         let options = FirebaseOptions {
             api_key: "demo-api-key".into(),
-            app_id: demo_app_id().into(),
+            app_id: DEMO_APP_ID.into(),
             project_id: "demo-project".into(),
             messaging_sender_id: None,
             storage_bucket: None,
@@ -175,7 +113,6 @@ fn app() -> Element {
 
         match initialize(options) {
             Ok(()) => {
-                // Host is 10.0.2.2 on the Android emulator and 127.0.0.1 on a USB device.
                 let _ = use_emulator(auth_emulator_host(), 9099);
 
                 // Channel to bridge native background callback -> Dioxus UI signal

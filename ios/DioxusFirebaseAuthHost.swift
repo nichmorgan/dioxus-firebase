@@ -42,8 +42,11 @@ public class DioxusFirebaseAuthHost: NSObject {
                     let trimmedAppId = appId.trimmingCharacters(in: .whitespacesAndNewlines)
                     // FIRApp.configure raises NSException for a non-iOS GOOGLE_APP_ID.
                     // do/catch does not catch that, and the process aborts.
-                    if let rejection = invalidIosAppId(trimmedAppId) {
-                        return rejection
+                    guard isIosAppId(trimmedAppId) else {
+                        return err(
+                            "invalid-app-id",
+                            "GOOGLE_APP_ID must be version:number:ios:<hex>"
+                        )
                     }
                     let trimmedSender = messagingSenderId.trimmingCharacters(in: .whitespacesAndNewlines)
                     let trimmedBucket = storageBucket.trimmingCharacters(in: .whitespacesAndNewlines)
@@ -248,19 +251,15 @@ public class DioxusFirebaseAuthHost: NSObject {
         "ERR\(unit)\(code)\(unit)\(message)"
     }
 
-    /// `version:number:ios:<hex>`. Anything else makes `FIRApp.configure` throw.
-    private static func invalidIosAppId(_ appId: String) -> String? {
+    /// `version:number:ios:<hex>`, with no empty segment.
+    private static func isIosAppId(_ appId: String) -> Bool {
         let parts = appId.split(separator: ":", omittingEmptySubsequences: false)
-        let suffix = parts.count == 4 ? parts[3] : ""
-        let platformOk = parts.count == 4 && parts[2] == "ios"
-        let suffixOk = !suffix.isEmpty && suffix.allSatisfy(\.isHexDigit)
-        if platformOk && suffixOk {
-            return nil
-        }
-        return err(
-            "invalid-app-id",
-            "GOOGLE_APP_ID must be version:number:ios:<hex>"
-        )
+        guard parts.count == 4 else { return false }
+        return !parts[0].isEmpty
+            && !parts[1].isEmpty
+            && parts[2] == "ios"
+            && !parts[3].isEmpty
+            && parts[3].allSatisfy(\.isHexDigit)
     }
 
     private static func mapError(_ error: Error) -> String {

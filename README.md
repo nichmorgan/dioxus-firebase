@@ -152,7 +152,7 @@ cargo ndk -t arm64-v8a test --lib
 
 The on-device Auth lifecycle test needs an app process with the Kotlin host. A raw `cargo` or `cross` test process hits `HostMissing` and returns early.
 
-iOS `--lib` tests use the same simulator target as CI. They run without the Swift host and expect `HostMissing`. They do not execute [`tests/ios/mod.rs`](tests/ios/mod.rs). The `ios-host` job builds the demo with `dx` and checks that `DioxusFirebaseAuthHost` loads from the embedded framework.
+iOS `--lib` tests use the same simulator target as CI. They run without the Swift host and expect `HostMissing`. They do not execute [`tests/ios/mod.rs`](tests/ios/mod.rs).
 
 ```bash
 rustup target add aarch64-apple-ios-sim

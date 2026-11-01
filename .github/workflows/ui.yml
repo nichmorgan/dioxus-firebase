@@ -12,6 +12,8 @@ jobs:
     name: Maestro (${{ matrix.platform }})
     runs-on: ${{ matrix.os }}
     timeout-minutes: 60
+    env:
+      MAESTRO_FLAGS: --format junit --output maestro-report.xml --test-output-dir maestro-debug --debug-output maestro-debug
     strategy:
       fail-fast: false
       matrix:
@@ -40,7 +42,7 @@ jobs:
         uses: Swatinem/rust-cache@v2
         with:
           cache-bin: true
-          key: ui-${{ matrix.platform }}-${{ matrix.target }}-dx-0.7.10${{ matrix.platform == 'ios' && '-panic-abort' || '' }}
+          key: ui-${{ matrix.platform }}-${{ matrix.target }}-dx-0.7.10
 
       - name: Install Dioxus CLI 0.7.10
         run: cargo install dioxus-cli --version 0.7.10 --locked
@@ -51,16 +53,7 @@ jobs:
           echo "$HOME/.maestro/bin" >> "$GITHUB_PATH"
 
       - name: Build demo
-        if: matrix.platform != 'ios'
         run: dx build --example demo --platform ${{ matrix.platform }} --target ${{ matrix.target }}
-
-      - name: Build iOS demo
-        if: matrix.platform == 'ios'
-        env:
-          # Abort at the first panic so the crash report keeps frames below tao's
-          # extern "C" run-loop observer. Dev profile only; dx build is not --release.
-          CARGO_PROFILE_DEV_PANIC: abort
-        run: dx build --example demo --platform ios --target ${{ matrix.target }}
 
       - name: Enable KVM
         if: matrix.platform == 'android'
@@ -92,7 +85,7 @@ jobs:
           # Each line runs as its own `sh -c`; keep every command on one line.
           script: |
             adb install -r "${APK}"
-            make maestro MAESTRO_FLAGS="--format junit --output maestro-report.xml --test-output-dir maestro-debug --debug-output maestro-debug"
+            make maestro
 
       - name: Boot iOS Simulator
         if: matrix.platform == 'ios'
@@ -114,24 +107,7 @@ jobs:
 
       - name: iOS Maestro
         if: matrix.platform == 'ios'
-        run: make maestro MAESTRO_FLAGS="--format junit --output maestro-report.xml --test-output-dir maestro-debug --debug-output maestro-debug"
-
-      - name: Collect iOS crash reports
-        if: failure() && matrix.platform == 'ios'
-        run: |
-          set -euo pipefail
-          mkdir -p maestro-ips
-          n=0
-          while IFS= read -r ips; do
-            [ -n "${ips}" ] || continue
-            n=$((n + 1))
-            cp "${ips}" "maestro-ips/${n}-$(basename "${ips}")"
-          done < <(find \
-            "${HOME}/Library/Logs/DiagnosticReports" \
-            "${HOME}/Library/Developer/CoreSimulator/Devices" \
-            -name '*.ips' -mmin -180 2>/dev/null || true)
-          echo "copied ${n} crash reports"
-          ls -la maestro-ips
+        run: make maestro
 
       - name: Upload Maestro output
         if: failure()
@@ -142,4 +118,3 @@ jobs:
           path: |
             maestro-report.xml
             maestro-debug/
-            maestro-ips/

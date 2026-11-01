@@ -9,7 +9,12 @@ use std::time::{SystemTime, UNIX_EPOCH};
 pub fn demo_options() -> FirebaseOptions {
     FirebaseOptions {
         api_key: "demo-api-key".into(),
-        app_id: "1:123456789:demo".into(),
+        app_id: if cfg!(target_os = "ios") {
+            "1:123456789:ios:0123456789abcdef"
+        } else {
+            "1:123456789:android:demo"
+        }
+        .into(),
         project_id: "demo-e2e-project".into(),
         messaging_sender_id: None,
         storage_bucket: None,
