@@ -69,6 +69,18 @@ jobs:
           sudo udevadm control --reload-rules
           sudo udevadm trigger --name-match=kvm
 
+      - name: Locate Android APK
+        if: matrix.platform == 'android'
+        run: |
+          set -euo pipefail
+          APK=$(find target/dx -name app-debug.apk -print -quit)
+          if [ -z "${APK}" ]; then
+            echo "app-debug.apk not found under target/dx"
+            find target/dx -name '*.apk' || true
+            exit 1
+          fi
+          echo "APK=${APK}" >> "$GITHUB_ENV"
+
       - name: Android emulator
         if: matrix.platform == 'android'
         uses: reactivecircus/android-emulator-runner@v2
@@ -77,15 +89,8 @@ jobs:
           arch: x86_64
           target: google_apis
           disable-animations: true
+          # Each line runs as its own `sh -c`; keep every command on one line.
           script: |
-            # This action runs the script with /usr/bin/sh (dash on Ubuntu).
-            set -eu
-            APK=$(find target/dx -name app-debug.apk -print -quit)
-            if [ -z "${APK}" ]; then
-              echo "app-debug.apk not found under target/dx"
-              find target/dx -name '*.apk' || true
-              exit 1
-            fi
             adb install -r "${APK}"
             make maestro MAESTRO_FLAGS="--format junit --output maestro-report.xml --test-output-dir maestro-debug --debug-output maestro-debug"
 
