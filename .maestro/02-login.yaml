@@ -1,5 +1,10 @@
 appId: com.example.demo
 ---
+- runFlow:
+    when:
+      platform: iOS
+    commands:
+      - clearKeychain
 - launchApp:
     clearState: true
 - runFlow:
