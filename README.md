@@ -129,6 +129,8 @@ Dioxus CLI's generated network-security config only allows cleartext HTTP to `12
 
 `HostMissing` means this process was not built with `dx`, so the Swift framework was never loaded. A non-`dx` build can add the local package [`ios/`](ios/) in Xcode (product `DioxusFirebaseAuthHost`); that package already depends on FirebaseAuth and FirebaseCore.
 
+Firebase Auth stores the signed-in user in the keychain. A `dx` simulator build without `--codesign` has no `application-identifier` or `keychain-access-groups` entitlement, so sign-in fails with `keychain-error` (`SecItemAdd` -34018). The demo embeds those entitlements in the simulator binary ([`examples/demo-simulator.entitlements`](examples/demo-simulator.entitlements), section `__TEXT,__entitlements`). Apps should do the same, or build with `--codesign` and an Apple Development identity. This crate does not inject the section; entitlements belong to the app.
+
 ## Testing
 
 Host checks (`UnsupportedPlatform` on desktop) live in [`tests/unsupported/mod.rs`](tests/unsupported/mod.rs):

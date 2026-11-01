@@ -7,6 +7,18 @@
 use dioxus::prelude::*;
 use dioxus_firebase::prelude::*;
 
+/// Firebase Auth stores the signed-in user in the keychain. A `dx` simulator
+/// build is only ad-hoc signed, so it has no `application-identifier` or
+/// `keychain-access-groups` and `SecItemAdd` fails with -34018. The simulator
+/// reads those entitlements from this Mach-O section (Xcode's Simulated.xcent).
+/// Device builds are codesigned by `dx --device` and must not embed this.
+/// On Mach-O, `#[used]` is `no_dead_strip`, so the linker keeps this section.
+#[cfg(all(target_os = "ios", target_abi = "sim"))]
+#[used]
+#[link_section = "__TEXT,__entitlements"]
+static SIMULATOR_ENTITLEMENTS: [u8; include_bytes!("demo-simulator.entitlements").len()] =
+    *include_bytes!("demo-simulator.entitlements");
+
 #[derive(Clone, PartialEq)]
 enum AuthState {
     Uninitialized,
