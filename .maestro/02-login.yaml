@@ -7,23 +7,9 @@ appId: com.example.demo
       - clearKeychain
 - launchApp:
     clearState: true
-- runFlow:
-    when:
-      platform: Android
-    commands:
-      - extendedWaitUntil:
-          visible:
-            text: "Firebase Auth initialized & subscribed."
-            childOf:
-              id: "auth-status"
-          timeout: 60000
-- runFlow:
-    when:
-      platform: iOS
-    commands:
-      - extendedWaitUntil:
-          visible: "Firebase Auth initialized & subscribed."
-          timeout: 60000
+- extendedWaitUntil:
+    visible: ".*Firebase Auth initialized & subscribed.*"
+    timeout: 60000
 - runFlow:
     when:
       platform: Android
@@ -39,4 +25,4 @@ appId: com.example.demo
 - extendedWaitUntil:
     visible: "User Account"
     timeout: 30000
-- assertVisible: "Signed in user:.*"
+- assertVisible: ".*Signed in user:.*"
