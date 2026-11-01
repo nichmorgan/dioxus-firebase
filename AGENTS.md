@@ -6,6 +6,7 @@
 - Serve and document the demo only with `dx serve --example demo`. Start a stateless Auth emulator with `make emulator` (Firebase CLI, project `demo-project`, no import/export), using `10.0.2.2` on the Android emulator. Maestro does not delete accounts.
 - Keep GitHub Actions short by reusing trusted existing actions. Maestro UI tests are an Android and iOS matrix. Suite order is `.maestro/config.yaml` `flowsOrder`: signup, then login, with `continueOnFailure: false`.
 - Leave `Cargo.lock` gitignored. This is a library, and downstream apps resolve their own lockfile.
+- Keep dependency source out of this library. A vendored tree such as `third_party/tao`, or a path `[patch]` that requires it, does not belong here.
 
 ## Learned Workspace Facts
 
@@ -15,5 +16,6 @@
 - A plain `cargo` or `cross` test process is not the app process, so live Auth calls return `HostMissing`. On-device Auth flows need a `dx` build (the demo or Maestro). iOS `--lib` tests on `aarch64-apple-ios-sim` do not run `tests/ios`.
 - Debug Android builds allow cleartext to the Auth emulator at `10.0.2.2` and `127.0.0.1`. Release network security does not. The demo uses `10.0.2.2` when `ro.boot.qemu=1` or the hardware is goldfish/ranchu, and `127.0.0.1` on a physical Android device or the iOS simulator. A USB device needs `adb reverse tcp:9099 tcp:9099`.
 - `make emulator` stops whatever is listening on port 9099, then runs `emulators:start` in the foreground for project `demo-project` with no import or export. `make maestro` uses `emulators:exec` with one quoted script so Maestro starts only after Auth is listening and the emulator exits with the suite. Accounts exist only in that process.
-- Maestro on the demo WebView finds `auth-status` on the parent and the status sentence on a child. Wait with `childOf` that id. A selector that requires the id and the text on one node times out. `assertVisible` matches the full accessibility string, so status lines that include a uid use a regex (`Created user:.*`, `Signed in user:.*`).
+- Maestro flows split with `when.platform`. Android waits with `childOf` `auth-status` and taps by `id` plus text. A selector that requires the id and the status text on one node times out. iOS does not expose those ids, so it waits and taps by text only (`Firebase Auth initialized & subscribed.`, `Sign Up`, `Sign In`, `Update Display Name`). `assertVisible` matches the full accessibility string, so status lines that include a uid use a regex (`Created user:.*`, `Signed in user:.*`).
+- Firebase iOS `FIRApp.configure` raises an `NSException` when `GOOGLE_APP_ID` is not `version:number:ios:<hex>`. Swift `do/catch` does not catch it, so the process aborts. The Swift host rejects that shape and returns `invalid-app-id` before configure. The demo uses `1:123456789:ios:0123456789abcdef` on iOS and `1:123456789:android:demo` on Android.
 - The Android step in `.github/workflows/ui.yml` uses `reactivecircus/android-emulator-runner`, which runs `script` with `/usr/bin/sh`. That shell rejects `set -o pipefail`, so the script uses `set -eu`.

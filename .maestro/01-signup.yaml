@@ -1,23 +1,52 @@
 appId: com.example.demo
 ---
 - launchApp:
-      clearState: true
-- extendedWaitUntil:
-      visible:
-          text: "Firebase Auth initialized & subscribed."
-          childOf:
+    clearState: true
+- runFlow:
+    when:
+      platform: Android
+    commands:
+      - extendedWaitUntil:
+          visible:
+            text: "Firebase Auth initialized & subscribed."
+            childOf:
               id: "auth-status"
-      timeout: 60000
-- tapOn:
-      id: "sign-up"
-      text: "Sign Up"
+          timeout: 60000
+- runFlow:
+    when:
+      platform: iOS
+    commands:
+      - extendedWaitUntil:
+          visible: "Firebase Auth initialized & subscribed."
+          timeout: 60000
+- runFlow:
+    when:
+      platform: Android
+    commands:
+      - tapOn:
+          id: "sign-up"
+          text: "Sign Up"
+- runFlow:
+    when:
+      platform: iOS
+    commands:
+      - tapOn: "Sign Up"
 - extendedWaitUntil:
-      visible: "User Account"
-      timeout: 30000
+    visible: "User Account"
+    timeout: 30000
 - assertVisible: "Created user:.*"
-- tapOn:
-      id: "update-display-name"
-      text: "Update Display Name"
+- runFlow:
+    when:
+      platform: Android
+    commands:
+      - tapOn:
+          id: "update-display-name"
+          text: "Update Display Name"
+- runFlow:
+    when:
+      platform: iOS
+    commands:
+      - tapOn: "Update Display Name"
 - extendedWaitUntil:
-      visible: "Display name updated successfully!"
-      timeout: 30000
+    visible: "Display name updated successfully!"
+    timeout: 30000
