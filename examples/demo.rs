@@ -14,6 +14,18 @@ enum AuthState {
     SignedIn(User),
 }
 
+/// Firebase iOS rejects an app id whose platform field is not `ios`.
+fn demo_app_id() -> &'static str {
+    #[cfg(target_os = "ios")]
+    {
+        "1:123456789:ios:0123456789abcdef"
+    }
+    #[cfg(not(target_os = "ios"))]
+    {
+        "1:123456789:android:demo"
+    }
+}
+
 /// Auth emulator host for this process.
 ///
 /// The Android emulator aliases the development machine as `10.0.2.2`. A physical
@@ -142,7 +154,7 @@ fn app() -> Element {
     use_effect(move || {
         let options = FirebaseOptions {
             api_key: "demo-api-key".into(),
-            app_id: "1:123456789:android:demo".into(),
+            app_id: demo_app_id().into(),
             project_id: "demo-project".into(),
             messaging_sender_id: None,
             storage_bucket: None,

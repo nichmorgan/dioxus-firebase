@@ -39,11 +39,17 @@ public class DioxusFirebaseAuthHost: NSObject {
         do {
             return try runOnMainSync {
                 if app == nil {
+                    let trimmedAppId = appId.trimmingCharacters(in: .whitespacesAndNewlines)
+                    // FIRApp.configure raises NSException for a non-iOS GOOGLE_APP_ID.
+                    // do/catch does not catch that, and the process aborts.
+                    if let rejection = invalidIosAppId(trimmedAppId) {
+                        return rejection
+                    }
                     let trimmedSender = messagingSenderId.trimmingCharacters(in: .whitespacesAndNewlines)
                     let trimmedBucket = storageBucket.trimmingCharacters(in: .whitespacesAndNewlines)
                     let trimmedDatabaseURL = databaseURL.trimmingCharacters(in: .whitespacesAndNewlines)
                     let options = FirebaseOptions(
-                        googleAppID: appId.trimmingCharacters(in: .whitespacesAndNewlines),
+                        googleAppID: trimmedAppId,
                         gcmSenderID: trimmedSender.isEmpty ? "0" : trimmedSender
                     )
                     options.apiKey = apiKey.trimmingCharacters(in: .whitespacesAndNewlines)
@@ -240,6 +246,21 @@ public class DioxusFirebaseAuthHost: NSObject {
 
     private static func err(_ code: String, _ message: String) -> String {
         "ERR\(unit)\(code)\(unit)\(message)"
+    }
+
+    /// `version:number:ios:<hex>`. Anything else makes `FIRApp.configure` throw.
+    private static func invalidIosAppId(_ appId: String) -> String? {
+        let parts = appId.split(separator: ":", omittingEmptySubsequences: false)
+        let suffix = parts.count == 4 ? parts[3] : ""
+        let platformOk = parts.count == 4 && parts[2] == "ios"
+        let suffixOk = !suffix.isEmpty && suffix.allSatisfy(\.isHexDigit)
+        if platformOk && suffixOk {
+            return nil
+        }
+        return err(
+            "invalid-app-id",
+            "GOOGLE_APP_ID must be version:number:ios:<hex>"
+        )
     }
 
     private static func mapError(_ error: Error) -> String {
