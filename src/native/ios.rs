@@ -1,12 +1,14 @@
 //! iOS: call the ObjC-visible Swift host shim.
 //!
-//! The app must:
-//! 1. Add FirebaseAuth via Swift Package Manager.
-//! 2. Compile [`ios/DioxusFirebaseAuthHost.swift`](../../../ios/DioxusFirebaseAuthHost.swift)
-//!    into the Dioxus iOS target.
+//! Dioxus CLI 0.7+ embeds [`ios/`](../../../ios/) (SwiftPM product
+//! `DioxusFirebaseAuthHost`, which depends on FirebaseAuth and FirebaseCore).
+//! This module `dlopen`s that framework before looking up the class.
+//! A non-`dx` build must add the local `ios/` package in Xcode instead.
 
 use std::ffi::{CStr, CString};
-use std::os::raw::c_char;
+use std::os::raw::{c_char, c_int, c_void};
+use std::os::unix::ffi::OsStrExt;
+use std::sync::OnceLock;
 
 use objc::runtime::{Class, Object};
 use objc::{class, msg_send, sel, sel_impl};
@@ -119,13 +121,83 @@ pub unsafe extern "C" fn dioxus_firebase_auth_state_changed(json: *const c_char)
 }
 
 fn host_class() -> Result<&'static Class, FirebaseError> {
+    let load_err = load_bundled_swift_host();
     Class::get(HOST_CLASS_NAME).ok_or_else(|| {
-        FirebaseError::HostMissing(
-            format!(
-                "{HOST_CLASS_NAME} not found. Compile ios/DioxusFirebaseAuthHost.swift into the iOS app and link FirebaseAuth."
-            ),
-        )
+        let detail = load_err.map(|err| format!(" ({err})")).unwrap_or_default();
+        FirebaseError::HostMissing(format!(
+            "{HOST_CLASS_NAME} not found{detail}. Build with Dioxus CLI 0.7+ (dx serve / dx bundle --platform ios) so this crate embeds ios/ (SwiftPM product {HOST_CLASS_NAME}). Without dx, add that local package in Xcode; it already depends on FirebaseAuth and FirebaseCore."
+        ))
     })
+}
+
+/// `dx` compiles the Swift package after the Rust binary and installs it under
+/// `Frameworks/`. The class is invisible to `Class::get` until that image is loaded.
+///
+/// Returns the first `dlopen` failure, if a candidate framework existed but did not load.
+fn load_bundled_swift_host() -> Option<String> {
+    #[link(name = "System")]
+    extern "C" {
+        fn dlopen(filename: *const c_char, flags: c_int) -> *mut c_void;
+    }
+
+    const RTLD_NOW: c_int = 0x2;
+    const RTLD_GLOBAL: c_int = 0x8;
+
+    static LOADED: OnceLock<Option<String>> = OnceLock::new();
+    LOADED
+        .get_or_init(|| {
+            let Ok(exe) = std::env::current_exe() else {
+                return None;
+            };
+            let Some(dir) = exe.parent() else {
+                return None;
+            };
+            let frameworks = dir.join("Frameworks");
+            // Umbrella name when this plugin is first, then the product name when another
+            // Swift plugin sorts ahead of `dioxusfirebaseauthhost`.
+            let mut load_err = None;
+            for name in ["DioxusSwiftPlugins", HOST_CLASS_NAME] {
+                let path = frameworks.join(format!("{name}.framework/{name}"));
+                if !path.is_file() {
+                    continue;
+                }
+                let mut bytes = path.as_os_str().as_bytes().to_vec();
+                if bytes.contains(&0) {
+                    continue;
+                }
+                bytes.push(0);
+                let Ok(cstr) = CString::from_vec_with_nul(bytes) else {
+                    continue;
+                };
+                let handle = unsafe { dlopen(cstr.as_ptr(), RTLD_NOW | RTLD_GLOBAL) };
+                if handle.is_null() {
+                    if load_err.is_none() {
+                        load_err = Some(dlerror_message());
+                    }
+                    continue;
+                }
+                if Class::get(HOST_CLASS_NAME).is_some() {
+                    return None;
+                }
+            }
+            load_err
+        })
+        .clone()
+}
+
+fn dlerror_message() -> String {
+    #[link(name = "System")]
+    extern "C" {
+        fn dlerror() -> *const c_char;
+    }
+
+    let err = unsafe { dlerror() };
+    if err.is_null() {
+        return "dlopen failed".into();
+    }
+    unsafe { CStr::from_ptr(err) }
+        .to_string_lossy()
+        .into_owned()
 }
 
 fn map_reply<T>(
@@ -189,7 +261,11 @@ mod tests {
     fn test_host_class_returns_host_missing_without_swift_host() {
         let err = host_class().expect_err("must fail without Swift host");
         assert!(
-            matches!(err, FirebaseError::HostMissing(ref msg) if msg.contains(HOST_CLASS_NAME)),
+            matches!(
+                err,
+                FirebaseError::HostMissing(ref msg)
+                    if msg.contains(HOST_CLASS_NAME) && msg.contains("dx")
+            ),
             "unexpected error: {err:?}"
         );
     }

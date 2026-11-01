@@ -1,0 +1,43 @@
+appId: com.example.demo
+---
+- runFlow:
+    when:
+      platform: iOS
+    commands:
+      - clearKeychain
+- launchApp:
+    clearState: true
+- extendedWaitUntil:
+    visible: ".*Firebase Auth initialized & subscribed.*"
+    timeout: 60000
+- runFlow:
+    when:
+      platform: Android
+    commands:
+      - tapOn:
+          id: "sign-up"
+          text: "Sign Up"
+- runFlow:
+    when:
+      platform: iOS
+    commands:
+      - tapOn: "Sign Up"
+- extendedWaitUntil:
+    visible: "User Account"
+    timeout: 30000
+- assertVisible: ".*Created user:.*"
+- runFlow:
+    when:
+      platform: Android
+    commands:
+      - tapOn:
+          id: "update-display-name"
+          text: "Update Display Name"
+- runFlow:
+    when:
+      platform: iOS
+    commands:
+      - tapOn: "Update Display Name"
+- extendedWaitUntil:
+    visible: ".*Display name updated successfully!.*"
+    timeout: 30000

@@ -1,0 +1,120 @@
+name: UI
+
+on:
+  pull_request:
+
+concurrency:
+  group: ui-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  maestro:
+    name: Maestro (${{ matrix.platform }})
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 60
+    env:
+      MAESTRO_FLAGS: --format junit --output maestro-report.xml --test-output-dir maestro-debug --debug-output maestro-debug
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - platform: android
+            os: ubuntu-latest
+            target: x86_64-linux-android
+          - platform: ios
+            os: macos-latest
+            target: aarch64-apple-ios-sim
+
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: actions/setup-java@v5
+        with:
+          distribution: temurin
+          java-version: "21"
+
+      - name: Install Rust toolchain
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: ${{ matrix.target }}
+
+      - name: Cache Cargo
+        uses: Swatinem/rust-cache@v2
+        with:
+          cache-bin: true
+          key: ui-${{ matrix.platform }}-${{ matrix.target }}-dx-0.7.10
+
+      - name: Install Dioxus CLI 0.7.10
+        run: cargo install dioxus-cli --version 0.7.10 --locked
+
+      - name: Install Maestro
+        run: |
+          curl -fsSL "https://get.maestro.mobile.dev" | bash
+          echo "$HOME/.maestro/bin" >> "$GITHUB_PATH"
+
+      - name: Build demo
+        run: dx build --example demo --platform ${{ matrix.platform }} --target ${{ matrix.target }}
+
+      - name: Enable KVM
+        if: matrix.platform == 'android'
+        run: |
+          echo 'KERNEL=="kvm", GROUP="kvm", MODE="0666", OPTIONS+="static_node=kvm"' | sudo tee /etc/udev/rules.d/99-kvm4all.rules
+          sudo udevadm control --reload-rules
+          sudo udevadm trigger --name-match=kvm
+
+      - name: Locate Android APK
+        if: matrix.platform == 'android'
+        run: |
+          set -euo pipefail
+          APK=$(find target/dx -name app-debug.apk -print -quit)
+          if [ -z "${APK}" ]; then
+            echo "app-debug.apk not found under target/dx"
+            find target/dx -name '*.apk' || true
+            exit 1
+          fi
+          echo "APK=${APK}" >> "$GITHUB_ENV"
+
+      - name: Android emulator
+        if: matrix.platform == 'android'
+        uses: reactivecircus/android-emulator-runner@v2
+        with:
+          api-level: 34
+          arch: x86_64
+          target: google_apis
+          disable-animations: true
+          # Each line runs as its own `sh -c`; keep every command on one line.
+          script: |
+            adb install -r "${APK}"
+            make maestro
+
+      - name: Boot iOS Simulator
+        if: matrix.platform == 'ios'
+        uses: futureware-tech/simulator-action@v6
+        with:
+          wait_for_boot: true
+
+      - name: Install iOS app
+        if: matrix.platform == 'ios'
+        run: |
+          set -euo pipefail
+          APP=$(find target/dx -type d -name 'Demo.app' -print -quit)
+          if [ -z "${APP}" ]; then
+            echo "Demo.app not found under target/dx"
+            find target/dx -type d -name '*.app' || true
+            exit 1
+          fi
+          xcrun simctl install booted "${APP}"
+
+      - name: iOS Maestro
+        if: matrix.platform == 'ios'
+        run: make maestro
+
+      - name: Upload Maestro output
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: maestro-${{ matrix.platform }}
+          if-no-files-found: ignore
+          path: |
+            maestro-report.xml
+            maestro-debug/

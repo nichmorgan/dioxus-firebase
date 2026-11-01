@@ -4,8 +4,8 @@ import FirebaseAuth
 
 /// Thin ObjC-visible host so Rust can call Firebase Auth via `objc`.
 ///
-/// Compile this file into your Dioxus iOS target and add Firebase iOS SDK
-/// (SPM: https://github.com/firebase/firebase-ios-sdk — FirebaseAuth).
+/// Dioxus CLI 0.7+ compiles this Swift package into the iOS app. The package
+/// depends on FirebaseAuth and FirebaseCore. Apps do not copy this file.
 ///
 /// Reply protocol (matches Rust `host_protocol`):
 /// - success void: `OK`
@@ -39,11 +39,20 @@ public class DioxusFirebaseAuthHost: NSObject {
         do {
             return try runOnMainSync {
                 if app == nil {
+                    let trimmedAppId = appId.trimmingCharacters(in: .whitespacesAndNewlines)
+                    // FIRApp.configure raises NSException for a non-iOS GOOGLE_APP_ID.
+                    // do/catch does not catch that, and the process aborts.
+                    guard isIosAppId(trimmedAppId) else {
+                        return err(
+                            "invalid-app-id",
+                            "GOOGLE_APP_ID must be version:number:ios:<hex>"
+                        )
+                    }
                     let trimmedSender = messagingSenderId.trimmingCharacters(in: .whitespacesAndNewlines)
                     let trimmedBucket = storageBucket.trimmingCharacters(in: .whitespacesAndNewlines)
                     let trimmedDatabaseURL = databaseURL.trimmingCharacters(in: .whitespacesAndNewlines)
                     let options = FirebaseOptions(
-                        googleAppID: appId.trimmingCharacters(in: .whitespacesAndNewlines),
+                        googleAppID: trimmedAppId,
                         gcmSenderID: trimmedSender.isEmpty ? "0" : trimmedSender
                     )
                     options.apiKey = apiKey.trimmingCharacters(in: .whitespacesAndNewlines)
@@ -242,6 +251,17 @@ public class DioxusFirebaseAuthHost: NSObject {
         "ERR\(unit)\(code)\(unit)\(message)"
     }
 
+    /// `version:number:ios:<hex>`, with no empty segment.
+    private static func isIosAppId(_ appId: String) -> Bool {
+        let parts = appId.split(separator: ":", omittingEmptySubsequences: false)
+        guard parts.count == 4 else { return false }
+        return !parts[0].isEmpty
+            && !parts[1].isEmpty
+            && parts[2] == "ios"
+            && !parts[3].isEmpty
+            && parts[3].allSatisfy(\.isHexDigit)
+    }
+
     private static func mapError(_ error: Error) -> String {
         if let host = error as? HostError {
             switch host {
@@ -297,7 +317,7 @@ public class DioxusFirebaseAuthHost: NSObject {
 
     /// Fallback when `AuthErrorUserInfoNameKey` is absent.
     private static func authWireCodeFallback(_ code: Int) -> String {
-        guard let authCode = AuthErrorCode.Code(rawValue: code) else {
+        guard let authCode = AuthErrorCode(rawValue: code) else {
             return "unknown"
         }
         switch authCode {
@@ -330,7 +350,7 @@ public class DioxusFirebaseAuthHost: NSObject {
         case mainThreadTimeout
     }
 
-    private static func runOnMainSync<T>(_ block: () throws -> T) throws -> T {
+    private static func runOnMainSync<T>(_ block: @escaping () throws -> T) throws -> T {
         if Thread.isMainThread {
             return try block()
         }

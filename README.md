@@ -99,11 +99,19 @@ Map codes to user-facing strings in the app (anti-enumeration on login, etc.).
 
 Optional: `use_emulator(host, port)` after init. JusFine can keep using staging cloud in debug and adopt the emulator later.
 
-On the Android emulator, call `use_emulator("10.0.2.2", 9099)`. `10.0.2.2` is the emulator's alias for the host machine, so no `adb reverse` is required. Start the Auth emulator on the host (`0.0.0.0:9099` in [`firebase.json`](firebase.json)):
+On the Android emulator, call `use_emulator("10.0.2.2", 9099)`. `10.0.2.2` is the emulator's alias for the host machine, so no `adb reverse` is required. A USB-connected Android device cannot use that alias. Call `use_emulator("127.0.0.1", 9099)` and forward the Auth port over the adb connection (re-run it after the device reconnects):
 
 ```bash
-npx -y firebase-tools emulators:start --only auth
+adb reverse tcp:9099 tcp:9099
 ```
+
+The iOS simulator shares the host network, so call `use_emulator("127.0.0.1", 9099)`. The demo uses `10.0.2.2` on an Android emulator and `127.0.0.1` on a physical Android device or the iOS simulator. Start a stateless Auth emulator on the host (`0.0.0.0:9099` in [`firebase.json`](firebase.json)). `make emulator` stops anything already listening on port 9099, then starts a new process with an empty account store. It does not import or export accounts:
+
+```bash
+make emulator
+```
+
+Accounts created while that process is running stay until it exits. The next `make emulator` does not load them.
 
 Dioxus CLI's generated network-security config only allows cleartext HTTP to `127.0.0.1`. Debug builds of an app that embeds this plugin also allow `10.0.2.2` (and `localhost`). Release builds are unchanged.
 
@@ -113,10 +121,15 @@ Dioxus CLI's generated network-security config only allows cleartext HTTP to `12
 2. Build with **Dioxus CLI 0.7+** (`dx`). The crate ships a Gradle library under [`android/`](android/) and emits manganis Android artifact metadata so `dx` embeds the Kotlin host automatically — **no copy/paste of Kotlin**.
 3. The plugin module depends on `com.google.firebase:firebase-auth` via the Firebase BoM.
 
-### iOS app deps
+### iOS (Dioxus CLI 0.7+)
 
-1. Add [Firebase iOS SDK](https://github.com/firebase/firebase-ios-sdk) via Swift Package Manager and link **FirebaseAuth** (and **FirebaseCore**).
-2. Compile [`ios/DioxusFirebaseAuthHost.swift`](ios/DioxusFirebaseAuthHost.swift) from this crate into your Dioxus iOS target (copy or path reference in Xcode / your `dx` mobile project).
+1. Depend on this crate (`path` / git).
+2. Build with **Dioxus CLI 0.7+** (`dx`). The crate ships a Swift package under [`ios/`](ios/) and emits manganis Swift package metadata so `dx` compiles and embeds the host automatically — **no copy/paste of Swift**.
+3. The package depends on **FirebaseAuth** and **FirebaseCore** (Firebase iOS SDK 11.15.0).
+
+`HostMissing` means this process was not built with `dx`, so the Swift framework was never loaded. A non-`dx` build can add the local package [`ios/`](ios/) in Xcode (product `DioxusFirebaseAuthHost`); that package already depends on FirebaseAuth and FirebaseCore.
+
+Firebase Auth stores the signed-in user in the keychain. A `dx` simulator build without `--codesign` has no `application-identifier` or `keychain-access-groups` entitlement, so sign-in fails with `keychain-error` (`SecItemAdd` -34018). The demo embeds those entitlements in the simulator binary ([`examples/demo-simulator.entitlements`](examples/demo-simulator.entitlements), section `__TEXT,__entitlements`). Apps should do the same, or build with `--codesign` and an Apple Development identity. This crate does not inject the section; entitlements belong to the app.
 
 ## Testing
 
@@ -150,11 +163,21 @@ On a Mac, boot a simulator first (CI does this with `xcrun simctl`) or set `CARG
 
 ## Demo
 
-[`examples/demo.rs`](examples/demo.rs) signs in against the Auth emulator at `10.0.2.2:9099` (see [Emulator](#emulator); no `adb reverse`). Start the emulator, then serve the example on Android:
+[`examples/demo.rs`](examples/demo.rs) talks to the Auth emulator at `10.0.2.2:9099` on the Android emulator, and at `127.0.0.1:9099` on a physical Android device or the iOS simulator (see [Emulator](#emulator)). Start the emulator, then serve the example. On a USB Android device, reverse the Auth port first:
 
 ```bash
-npx -y firebase-tools emulators:start --only auth
+adb reverse tcp:9099 tcp:9099
+make emulator
 dx serve --example demo --platform android
+dx serve --example demo --platform ios
+```
+
+[`.maestro/`](.maestro/) signs up with the prefilled account, then logs in with it. The suite does not delete accounts. A re-run needs a new `make emulator` or `make maestro`, because nothing clears accounts inside a running emulator. `make maestro` starts an empty Auth emulator, runs both flows against that process, and shuts it down. [`.github/workflows/ui.yml`](.github/workflows/ui.yml) runs both flows on an Android emulator and an iOS simulator. Locally, with the demo installed on a booted device:
+
+```bash
+# USB Android device only. The Android emulator reaches the host at 10.0.2.2.
+adb reverse tcp:9099 tcp:9099
+make maestro
 ```
 
 ## License
