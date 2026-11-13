@@ -1,6 +1,6 @@
 # dioxus-firebase
 
-**Unofficial** [Dioxus](https://dioxuslabs.com/) bridge for [Firebase Auth](https://firebase.google.com/docs/auth) (email/password).
+**Unofficial** [Dioxus](https://dioxuslabs.com/) bridge for [Firebase Auth](https://firebase.google.com/docs/auth) (email/password, Google, Apple).
 
 **Mobile only for now** (iOS and Android). Web and desktop return `UnsupportedPlatform`.
 
@@ -8,7 +8,7 @@ This crate is **not affiliated** with Google / Firebase. [JusFine](https://githu
 
 ## Status
 
-Early — v1 covers email/password only (no Google/Apple/phone, no email verification, no custom claims).
+Early — email/password plus Google and Apple sign-in/link. No phone auth, email verification, or custom claims.
 
 ## Architecture
 
@@ -26,7 +26,7 @@ Native calls go through a thin host — Kotlin on Android (auto-bundled by Dioxu
 | Layer | Owns |
 | -- | -- |
 | **Library** | Auth primitives, structured **wire** error codes, native persistence, token refresh, auth-state listener |
-| **App** | `FirebaseOptions` (api key, app id, project id, staging vs prod), PT-BR / localized copy, route gates, fail-open identify |
+| **App** | `FirebaseOptions` (api key, app id, project id, optional Google web client ID, staging vs prod), Console provider enablement, Android SHA-1, iOS Sign in with Apple capability / Google URL schemes, PT-BR / localized copy, route gates |
 
 Do **not** put `google-services.json` keys inside this library. The app passes options at init.
 
@@ -44,12 +44,32 @@ initialize(FirebaseOptions {
     messaging_sender_id: None,
     storage_bucket: None,
     database_url: None,
+    // OAuth *web* client ID from Firebase Console → Project settings → Your apps
+    // (or Google Cloud credentials). Required for Google sign-in / link.
+    google_web_client_id: std::env::var("FIREBASE_GOOGLE_WEB_CLIENT_ID").ok(),
 })?;
 ```
 
 Double-init returns `AlreadyInitialized`. Desktop / web builds return `UnsupportedPlatform`.
 
-Call mutations (`sign_in_with_email`, …) from `spawn_blocking` (or another worker thread) — not Dioxus `spawn`, which is often still the UI thread on iOS. The host hops to the main thread and **waits** on the Firebase Task.
+Call mutations (`sign_in_with_email`, `sign_in_with_google`, …) from `spawn_blocking` (or another worker thread) — not Dioxus `spawn`, which is often still the UI thread on iOS. Social flows present a system sheet on the main thread, then wait on the worker for the credential and Firebase Task.
+
+### Google / Apple app setup
+
+Same Rust APIs on both platforms (`sign_in_with_google` / `sign_in_with_apple` / `link_with_*`). Enable Google and/or Apple under Authentication in the Firebase Console. Pass the OAuth **web** client ID as `google_web_client_id` when using Google. Wire codes include `cancelled` (sheet dismissed) and `unavailable` (missing client ID / Activity / presentation). Federated sign-in against the Auth emulator is limited — keep email/emulator for CI; exercise live Google/Apple on a real project.
+
+**Android**
+
+- Register the app’s SHA-1 in Firebase Console (Google and Apple).
+- Google uses Credential Manager with `google_web_client_id` as `serverClientId` (Play services on device; `minSdk` stays 24).
+- Apple uses Firebase-managed Custom Tabs (`OAuthProvider`). Configure an Apple Services ID, return URL `https://PROJECT_ID.firebaseapp.com/__/auth/handler`, and OAuth code-flow keys (Team ID, key, key ID) in Console. The host checks `pendingAuthResult` before starting a new Custom Tab flow if the Activity was reclaimed mid-login.
+- `sign_out` clears Firebase Auth and best-effort Credential Manager state.
+
+**iOS**
+
+- Google: pass `google_web_client_id` and/or set `GIDClientID` in Info.plist; add the reversed client ID URL scheme. The **app** must forward open-URL callbacks to `GIDSignIn.sharedInstance.handle(url)` (scene / app delegate — Dioxus owns that path).
+- Apple: enable the Sign in with Apple capability / entitlements on the **app**. The host generates the nonce and builds `OAuthProvider.appleCredential` (including `fullName` on first sign-in).
+- `sign_out` clears Firebase Auth and best-effort `GIDSignIn` session state.
 
 ## Auth-state + Dioxus signals
 
@@ -92,6 +112,13 @@ Failures return `FirebaseError::Auth { code, message }` with Firebase-style wire
 - `user-disabled`
 - `too-many-requests`
 - `network-request-failed`
+- `account-exists-with-different-credential`
+- `credential-already-in-use`
+- `provider-already-linked`
+- `cancelled` (user dismissed the system sheet)
+- `unavailable` (missing client ID / Activity / presentation context)
+
+`User.provider_ids` lists linked providers (`password`, `google.com`, `apple.com`, …) on every snapshot, including auth-state callbacks.
 
 Map codes to user-facing strings in the app (anti-enumeration on login, etc.).
 
@@ -119,15 +146,15 @@ Dioxus CLI's generated network-security config only allows cleartext HTTP to `12
 
 1. Depend on this crate (`path` / git).
 2. Build with **Dioxus CLI 0.7+** (`dx`). The crate ships a Gradle library under [`android/`](android/) and emits manganis Android artifact metadata so `dx` embeds the Kotlin host automatically — **no copy/paste of Kotlin**.
-3. The plugin module depends on `com.google.firebase:firebase-auth` via the Firebase BoM.
+3. The plugin module depends on `com.google.firebase:firebase-auth` via the Firebase BoM, plus AndroidX Credential Manager / Google Identity for Google sign-in.
 
 ### iOS (Dioxus CLI 0.7+)
 
 1. Depend on this crate (`path` / git).
 2. Build with **Dioxus CLI 0.7+** (`dx`). The crate ships a Swift package under [`ios/`](ios/) and emits manganis Swift package metadata so `dx` compiles and embeds the host automatically — **no copy/paste of Swift**.
-3. The package depends on **FirebaseAuth** and **FirebaseCore** (Firebase iOS SDK 11.15.0).
+3. The package depends on **FirebaseAuth**, **FirebaseCore** (Firebase iOS SDK 11.15.0), and **GoogleSignIn**.
 
-`HostMissing` means this process was not built with `dx`, so the Swift framework was never loaded. A non-`dx` build can add the local package [`ios/`](ios/) in Xcode (product `DioxusFirebaseAuthHost`); that package already depends on FirebaseAuth and FirebaseCore.
+`HostMissing` means this process was not built with `dx`, so the Swift framework was never loaded. A non-`dx` build can add the local package [`ios/`](ios/) in Xcode (product `DioxusFirebaseAuthHost`); that package already depends on FirebaseAuth, FirebaseCore, and GoogleSignIn.
 
 Firebase Auth stores the signed-in user in the keychain. A `dx` simulator build without `--codesign` has no `application-identifier` or `keychain-access-groups` entitlement, so sign-in fails with `keychain-error` (`SecItemAdd` -34018). The demo embeds those entitlements in the simulator binary ([`examples/demo-simulator.entitlements`](examples/demo-simulator.entitlements), section `__TEXT,__entitlements`). Apps should do the same, or build with `--codesign` and an Apple Development identity. This crate does not inject the section; entitlements belong to the app.
 

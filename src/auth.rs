@@ -1,4 +1,4 @@
-//! Email/password Auth primitives and token helpers.
+//! Auth primitives (email/password + Google/Apple) and token helpers.
 
 use crate::error::FirebaseError;
 use crate::host_protocol::{require_email, require_email_password};
@@ -81,4 +81,40 @@ pub fn use_emulator(host: impl AsRef<str>, port: u16) -> Result<(), FirebaseErro
         ));
     }
     native::use_emulator(host, port)
+}
+
+/// Sign in (or create a session) with Google.
+///
+/// Requires [`crate::FirebaseOptions::google_web_client_id`] (or iOS
+/// `GIDClientID` in Info.plist). Presents the system Google account sheet.
+/// Call from `spawn_blocking` / a worker thread.
+pub fn sign_in_with_google() -> Result<User, FirebaseError> {
+    require_initialized()?;
+    native::sign_in_with_google()
+}
+
+/// Sign in (or create a session) with Apple.
+///
+/// Presents Sign in with Apple. Call from `spawn_blocking` / a worker thread.
+pub fn sign_in_with_apple() -> Result<User, FirebaseError> {
+    require_initialized()?;
+    native::sign_in_with_apple()
+}
+
+/// Link Google to the **current** user (`linkWithCredential`).
+///
+/// Fails with a wire auth code when signed out or when the credential is
+/// already tied to another account. UID is unchanged on success.
+pub fn link_with_google() -> Result<User, FirebaseError> {
+    require_initialized()?;
+    native::link_with_google()
+}
+
+/// Link Apple to the **current** user (`linkWithCredential`).
+///
+/// Fails with a wire auth code when signed out or when the credential is
+/// already tied to another account. UID is unchanged on success.
+pub fn link_with_apple() -> Result<User, FirebaseError> {
+    require_initialized()?;
+    native::link_with_apple()
 }

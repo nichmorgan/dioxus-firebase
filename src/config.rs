@@ -24,6 +24,10 @@ pub struct FirebaseOptions {
     pub storage_bucket: Option<String>,
     /// Optional Realtime Database URL.
     pub database_url: Option<String>,
+    /// OAuth **web** client ID for Google Sign-In (Android Credential Manager
+    /// `serverClientId` / iOS `GIDConfiguration`). Required for Google APIs;
+    /// email-only apps may leave this `None`.
+    pub google_web_client_id: Option<String>,
 }
 
 impl FirebaseOptions {
@@ -61,6 +65,7 @@ mod tests {
             messaging_sender_id: Some("123456789".into()),
             storage_bucket: Some("demo-project.appspot.com".into()),
             database_url: Some("https://demo-project.firebaseio.com".into()),
+            google_web_client_id: None,
         }
     }
 
@@ -74,6 +79,13 @@ mod tests {
         valid_options.messaging_sender_id = None;
         valid_options.storage_bucket = None;
         valid_options.database_url = None;
+        assert_eq!(valid_options.validate(), Ok(()));
+    }
+
+    #[rstest]
+    fn test_valid_options_with_google_web_client_id(mut valid_options: FirebaseOptions) {
+        valid_options.google_web_client_id =
+            Some("123456789-abcdef.apps.googleusercontent.com".into());
         assert_eq!(valid_options.validate(), Ok(()));
     }
 
@@ -97,6 +109,7 @@ mod tests {
             messaging_sender_id: None,
             storage_bucket: None,
             database_url: None,
+            google_web_client_id: None,
         };
         let err = options.validate().unwrap_err();
         match err {

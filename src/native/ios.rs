@@ -1,9 +1,9 @@
 //! iOS: call the ObjC-visible Swift host shim.
 //!
 //! Dioxus CLI 0.7+ embeds [`ios/`](../../../ios/) (SwiftPM product
-//! `DioxusFirebaseAuthHost`, which depends on FirebaseAuth and FirebaseCore).
-//! This module `dlopen`s that framework before looking up the class.
-//! A non-`dx` build must add the local `ios/` package in Xcode instead.
+//! `DioxusFirebaseAuthHost`, which depends on FirebaseAuth, FirebaseCore, and
+//! GoogleSignIn). This module `dlopen`s that framework before looking up the
+//! class. A non-`dx` build must add the local `ios/` package in Xcode instead.
 
 use std::ffi::{CStr, CString};
 use std::os::raw::{c_char, c_int, c_void};
@@ -29,6 +29,7 @@ pub(crate) fn initialize(options: &FirebaseOptions) -> Result<(), FirebaseError>
     let messaging_sender_id = nsstring(options.messaging_sender_id.as_deref().unwrap_or(""))?;
     let storage_bucket = nsstring(options.storage_bucket.as_deref().unwrap_or(""))?;
     let database_url = nsstring(options.database_url.as_deref().unwrap_or(""))?;
+    let google_web_client_id = nsstring(options.google_web_client_id.as_deref().unwrap_or(""))?;
 
     let err: *mut Object = unsafe {
         msg_send![
@@ -39,6 +40,7 @@ pub(crate) fn initialize(options: &FirebaseOptions) -> Result<(), FirebaseError>
             messagingSenderId: messaging_sender_id
             storageBucket: storage_bucket
             databaseURL: database_url
+            googleWebClientId: google_web_client_id
         ]
     };
 
@@ -110,6 +112,30 @@ pub(crate) fn subscribe_auth_state() -> Result<(), FirebaseError> {
     map_reply(reply, parse_void)
 }
 
+pub(crate) fn sign_in_with_google() -> Result<User, FirebaseError> {
+    let host = host_class()?;
+    let reply: *mut Object = unsafe { msg_send![host, signInWithGoogle] };
+    map_reply(reply, parse_user)
+}
+
+pub(crate) fn sign_in_with_apple() -> Result<User, FirebaseError> {
+    let host = host_class()?;
+    let reply: *mut Object = unsafe { msg_send![host, signInWithApple] };
+    map_reply(reply, parse_user)
+}
+
+pub(crate) fn link_with_google() -> Result<User, FirebaseError> {
+    let host = host_class()?;
+    let reply: *mut Object = unsafe { msg_send![host, linkWithGoogle] };
+    map_reply(reply, parse_user)
+}
+
+pub(crate) fn link_with_apple() -> Result<User, FirebaseError> {
+    let host = host_class()?;
+    let reply: *mut Object = unsafe { msg_send![host, linkWithApple] };
+    map_reply(reply, parse_user)
+}
+
 #[no_mangle]
 pub unsafe extern "C" fn dioxus_firebase_auth_state_changed(json: *const c_char) {
     let payload = if json.is_null() {
@@ -125,7 +151,7 @@ fn host_class() -> Result<&'static Class, FirebaseError> {
     Class::get(HOST_CLASS_NAME).ok_or_else(|| {
         let detail = load_err.map(|err| format!(" ({err})")).unwrap_or_default();
         FirebaseError::HostMissing(format!(
-            "{HOST_CLASS_NAME} not found{detail}. Build with Dioxus CLI 0.7+ (dx serve / dx bundle --platform ios) so this crate embeds ios/ (SwiftPM product {HOST_CLASS_NAME}). Without dx, add that local package in Xcode; it already depends on FirebaseAuth and FirebaseCore."
+            "{HOST_CLASS_NAME} not found{detail}. Build with Dioxus CLI 0.7+ (dx serve / dx bundle --platform ios) so this crate embeds ios/ (SwiftPM product {HOST_CLASS_NAME}). Without dx, add that local package in Xcode; it already depends on FirebaseAuth, FirebaseCore, and GoogleSignIn."
         ))
     })
 }
@@ -279,6 +305,7 @@ mod tests {
             messaging_sender_id: None,
             storage_bucket: None,
             database_url: None,
+            google_web_client_id: None,
         };
 
         assert!(matches!(
@@ -319,6 +346,22 @@ mod tests {
         ));
         assert!(matches!(
             subscribe_auth_state().unwrap_err(),
+            FirebaseError::HostMissing(_)
+        ));
+        assert!(matches!(
+            sign_in_with_google().unwrap_err(),
+            FirebaseError::HostMissing(_)
+        ));
+        assert!(matches!(
+            sign_in_with_apple().unwrap_err(),
+            FirebaseError::HostMissing(_)
+        ));
+        assert!(matches!(
+            link_with_google().unwrap_err(),
+            FirebaseError::HostMissing(_)
+        ));
+        assert!(matches!(
+            link_with_apple().unwrap_err(),
             FirebaseError::HostMissing(_)
         ));
     }

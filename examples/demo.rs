@@ -109,6 +109,8 @@ fn app() -> Element {
             messaging_sender_id: None,
             storage_bucket: None,
             database_url: None,
+            // Set a real OAuth web client ID to exercise Google sheets.
+            google_web_client_id: None,
         };
 
         match initialize(options) {
@@ -234,6 +236,47 @@ fn app() -> Element {
                                 "Sign Up"
                             }
                         }
+
+                        div { style: "display: flex; gap: 10px;",
+                            button {
+                                id: "sign-in-google",
+                                style: "flex: 1; padding: 10px; background: #db4437; color: white; border: none; border-radius: 4px;",
+                                onclick: move |_| {
+                                    spawn_auth(
+                                        sign_in_with_google,
+                                        move |result| match result {
+                                            Ok(user) => status_message.set(format!(
+                                                "Signed in with Google: {} ({})",
+                                                user.uid,
+                                                user.provider_ids.join(",")
+                                            )),
+                                            Err(err) => status_message
+                                                .set(format!("Google sign-in error: {err}")),
+                                        },
+                                    );
+                                },
+                                "Google"
+                            }
+                            button {
+                                id: "sign-in-apple",
+                                style: "flex: 1; padding: 10px; background: #000000; color: white; border: none; border-radius: 4px;",
+                                onclick: move |_| {
+                                    spawn_auth(
+                                        sign_in_with_apple,
+                                        move |result| match result {
+                                            Ok(user) => status_message.set(format!(
+                                                "Signed in with Apple: {} ({})",
+                                                user.uid,
+                                                user.provider_ids.join(",")
+                                            )),
+                                            Err(err) => status_message
+                                                .set(format!("Apple sign-in error: {err}")),
+                                        },
+                                    );
+                                },
+                                "Apple"
+                            }
+                        }
                     }
                 },
                 AuthState::SignedIn(user) => rsx! {
@@ -251,6 +294,10 @@ fn app() -> Element {
                         p {
                             strong { "Display Name: " }
                             "{user.display_name.as_deref().unwrap_or(\"N/A\")}"
+                        }
+                        p {
+                            strong { "Providers: " }
+                            "{user.provider_ids.join(\", \")}"
                         }
 
                         hr {}
@@ -279,6 +326,45 @@ fn app() -> Element {
                                 );
                             },
                             "Update Display Name"
+                        }
+
+                        div { style: "display: flex; gap: 10px;",
+                            button {
+                                id: "link-google",
+                                style: "flex: 1; padding: 8px; background: #db4437; color: white; border: none; border-radius: 4px;",
+                                onclick: move |_| {
+                                    spawn_auth(
+                                        link_with_google,
+                                        move |result| match result {
+                                            Ok(user) => status_message.set(format!(
+                                                "Linked Google: {}",
+                                                user.provider_ids.join(",")
+                                            )),
+                                            Err(err) => status_message
+                                                .set(format!("Link Google error: {err}")),
+                                        },
+                                    );
+                                },
+                                "Link Google"
+                            }
+                            button {
+                                id: "link-apple",
+                                style: "flex: 1; padding: 8px; background: #000000; color: white; border: none; border-radius: 4px;",
+                                onclick: move |_| {
+                                    spawn_auth(
+                                        link_with_apple,
+                                        move |result| match result {
+                                            Ok(user) => status_message.set(format!(
+                                                "Linked Apple: {}",
+                                                user.provider_ids.join(",")
+                                            )),
+                                            Err(err) => status_message
+                                                .set(format!("Link Apple error: {err}")),
+                                        },
+                                    );
+                                },
+                                "Link Apple"
+                            }
                         }
 
                         button {

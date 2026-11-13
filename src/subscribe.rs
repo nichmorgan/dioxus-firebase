@@ -159,6 +159,7 @@ mod tests {
             uid: "test_uid".into(),
             email: Some("a@b.c".into()),
             display_name: None,
+            provider_ids: vec!["password".into()],
         }));
 
         assert!(invoked.load(Ordering::SeqCst));
@@ -172,6 +173,13 @@ mod tests {
         uid: "uid123".into(),
         email: Some("user@example.com".into()),
         display_name: Some("John Doe".into()),
+        provider_ids: vec![],
+    }))]
+    #[case(Some("uid123\x1fa@b.c\x1fAda\x1fpassword,google.com"), Some(User {
+        uid: "uid123".into(),
+        email: Some("a@b.c".into()),
+        display_name: Some("Ada".into()),
+        provider_ids: vec!["password".into(), "google.com".into()],
     }))]
     fn test_dispatch_auth_state_payload(
         _clear_callback: ClearCallbackGuard,

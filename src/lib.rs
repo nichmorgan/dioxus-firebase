@@ -10,7 +10,7 @@
 //! (`invalid-credential`, `email-already-in-use`, …) — map them to PT-BR (or
 //! other) copy in the app.
 //!
-//! JusFine dogfoods this crate for email/password auth.
+//! JusFine dogfoods this crate for email/password and Google/Apple auth.
 
 mod auth;
 mod config;
@@ -22,7 +22,8 @@ mod subscribe;
 mod user;
 
 pub use auth::{
-    create_user_with_email, current_user, id_token, send_password_reset_email, sign_in_with_email,
+    create_user_with_email, current_user, id_token, link_with_apple, link_with_google,
+    send_password_reset_email, sign_in_with_apple, sign_in_with_email, sign_in_with_google,
     sign_out, update_display_name, use_emulator,
 };
 pub use config::FirebaseOptions;
@@ -35,7 +36,8 @@ pub use user::User;
 pub mod prelude {
     pub use crate::{
         create_user_with_email, current_user, id_token, initialize, is_initialized,
-        send_password_reset_email, sign_in_with_email, sign_out, subscribe_auth_state,
+        link_with_apple, link_with_google, send_password_reset_email, sign_in_with_apple,
+        sign_in_with_email, sign_in_with_google, sign_out, subscribe_auth_state,
         update_display_name, use_emulator, AuthStateSubscription, FirebaseError, FirebaseOptions,
         User,
     };
@@ -55,6 +57,7 @@ mod tests {
             messaging_sender_id: None,
             storage_bucket: None,
             database_url: None,
+            google_web_client_id: None,
         }
     }
 
@@ -75,6 +78,7 @@ mod tests {
             messaging_sender_id: None,
             storage_bucket: None,
             database_url: None,
+            google_web_client_id: None,
         };
         let err = opts.validate().unwrap_err();
         assert!(err.to_string().contains(expected_err));

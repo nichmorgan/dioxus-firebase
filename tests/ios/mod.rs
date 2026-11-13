@@ -40,11 +40,17 @@ fn test_ios_firebase_auth_emulator_lifecycle(
     let password = "TestPassword123!";
     let created = create_user_with_email(&unique_email, password)?;
     assert_eq!(created.email.as_deref(), Some(unique_email.as_str()));
+    assert!(
+        created.provider_ids.iter().any(|p| p == "password"),
+        "email user should list password provider: {:?}",
+        created.provider_ids
+    );
 
     // 5. Update Profile
     update_display_name("iOS E2E User")?;
     let updated = current_user()?.expect("should have updated user");
     assert_eq!(updated.display_name.as_deref(), Some("iOS E2E User"));
+    assert!(updated.provider_ids.iter().any(|p| p == "password"));
 
     // 6. Sign Out & Sign Back In
     sign_out()?;
@@ -52,6 +58,7 @@ fn test_ios_firebase_auth_emulator_lifecycle(
 
     let signed_in = sign_in_with_email(&unique_email, password)?;
     assert_eq!(signed_in.uid, created.uid);
+    assert!(signed_in.provider_ids.iter().any(|p| p == "password"));
 
     sign_out()?;
     Ok(())

@@ -10,7 +10,7 @@
 
 ## Learned Workspace Facts
 
-- `dioxus-firebase` is a mobile-only (Android and iOS) Dioxus bridge for Firebase Auth email/password. Web and desktop return `UnsupportedPlatform`. Dioxus CLI 0.7+ embeds the Kotlin and Swift hosts via manganis, so apps do not copy those hosts.
+- `dioxus-firebase` is a mobile-only (Android and iOS) Dioxus bridge for Firebase Auth (email/password, Google, Apple sign-in/link). Web and desktop return `UnsupportedPlatform`. Dioxus CLI 0.7+ embeds the Kotlin and Swift hosts via manganis, so apps do not copy those hosts. `User.provider_ids` is wire field 4 (comma-separated). Google needs optional `FirebaseOptions.google_web_client_id`. Social sheets present on the main thread while the worker waits; cancel → `cancelled`, missing Activity/client ID → `unavailable`. Live Google/Apple are not Maestro/CI; keep email emulator Maestro for UI.
 - Load `io.dioxus.firebase.DioxusFirebaseAuthHost` only through the Activity `ClassLoader.loadClass` path. `Env::find_class` from `attach_current_thread` panics on release/arm64 when a JNI exception is pending; clear that exception before `getClassLoader`. `src/native/android.rs` is `cfg(target_os = "android")`, so check it with `--target aarch64-linux-android` or `cross`.
 - The iOS host tracks the Kotlin host (shared Firebase app and Auth getters). Firebase iOS SDK 11.x uses `AuthErrorCode(rawValue:)`.
 - A plain `cargo` or `cross` test process is not the app process, so live Auth calls return `HostMissing`. On-device Auth flows need a `dx` build (the demo or Maestro). iOS `--lib` tests on `aarch64-apple-ios-sim` do not run `tests/ios`.

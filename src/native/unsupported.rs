@@ -43,3 +43,19 @@ pub(crate) fn use_emulator(_host: &str, _port: u16) -> Result<(), FirebaseError>
 pub(crate) fn subscribe_auth_state() -> Result<(), FirebaseError> {
     Err(FirebaseError::UnsupportedPlatform)
 }
+
+pub(crate) fn sign_in_with_google() -> Result<User, FirebaseError> {
+    Err(FirebaseError::UnsupportedPlatform)
+}
+
+pub(crate) fn sign_in_with_apple() -> Result<User, FirebaseError> {
+    Err(FirebaseError::UnsupportedPlatform)
+}
+
+pub(crate) fn link_with_google() -> Result<User, FirebaseError> {
+    Err(FirebaseError::UnsupportedPlatform)
+}
+
+pub(crate) fn link_with_apple() -> Result<User, FirebaseError> {
+    Err(FirebaseError::UnsupportedPlatform)
+}
