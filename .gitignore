@@ -20,6 +20,7 @@ Thumbs.db
 firebase-debug.log
 
 # Secrets
+.env
 .infisical.json
 
 # Cursor state

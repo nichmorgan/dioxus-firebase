@@ -47,15 +47,22 @@ fn test_android_firebase_auth_emulator_lifecycle(
     let password = "TestPassword123!";
     let created = create_user_with_email(&unique_email, password)?;
     assert_eq!(created.email.as_deref(), Some(unique_email.as_str()));
+    assert!(
+        created.provider_ids.iter().any(|p| p == "password"),
+        "email user should list password provider: {:?}",
+        created.provider_ids
+    );
 
     // Verify Callback
     if let Ok(Some(state_user)) = rx.recv_timeout(Duration::from_secs(5)) {
         assert_eq!(state_user.uid, created.uid);
+        assert!(state_user.provider_ids.iter().any(|p| p == "password"));
     }
 
     // 5. Query User & Update Profile
     let active = current_user()?.expect("should have active user");
     assert_eq!(active.uid, created.uid);
+    assert!(active.provider_ids.iter().any(|p| p == "password"));
 
     update_display_name("Android E2E User")?;
     let updated = current_user()?.expect("should have updated user");
@@ -72,6 +79,7 @@ fn test_android_firebase_auth_emulator_lifecycle(
 
     let signed_in = sign_in_with_email(&unique_email, password)?;
     assert_eq!(signed_in.uid, created.uid);
+    assert!(signed_in.provider_ids.iter().any(|p| p == "password"));
 
     sign_out()?;
     Ok(())

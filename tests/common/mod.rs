@@ -19,6 +19,7 @@ pub fn demo_options() -> FirebaseOptions {
         messaging_sender_id: None,
         storage_bucket: None,
         database_url: None,
+        google_web_client_id: None,
     }
 }
 

@@ -71,3 +71,23 @@ pub(crate) fn use_emulator(host: &str, port: u16) -> Result<(), FirebaseError> {
 pub(crate) fn subscribe_auth_state() -> Result<(), FirebaseError> {
     native_call!(subscribe_auth_state())
 }
+
+pub(crate) fn sign_in_with_google() -> Result<User, FirebaseError> {
+    native_call!(sign_in_with_google())
+}
+
+pub(crate) fn link_with_google() -> Result<User, FirebaseError> {
+    native_call!(link_with_google())
+}
+
+// Apple Sign-In blocked for now — re-enable when Console + OAuth are ready.
+#[allow(dead_code)]
+pub(crate) fn sign_in_with_apple() -> Result<User, FirebaseError> {
+    native_call!(sign_in_with_apple())
+}
+
+// Apple Sign-In blocked for now — re-enable when Console + OAuth are ready.
+#[allow(dead_code)]
+pub(crate) fn link_with_apple() -> Result<User, FirebaseError> {
+    native_call!(link_with_apple())
+}

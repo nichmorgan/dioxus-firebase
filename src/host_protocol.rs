@@ -42,18 +42,27 @@ pub(crate) fn parse_user(reply: &str) -> Result<User, FirebaseError> {
     }
 }
 
-/// Parse `uid\x1femail\x1fdisplayName` (auth-state payloads and OK user bodies).
+/// Parse `uid\x1femail\x1fdisplayName[\x1fproviderIds]` (auth-state / OK user bodies).
+///
+/// `providerIds` is comma-separated (e.g. `password,google.com`). Missing 4th
+/// field yields an empty `provider_ids` list.
 pub(crate) fn parse_user_fields(fields: &str) -> Result<User, FirebaseError> {
     let mut parts = fields.split(UNIT);
     let uid = parts.next().unwrap_or_default().to_string();
     let email = parts.next().unwrap_or_default().to_string();
     let display_name = parts.next().unwrap_or_default().to_string();
+    let provider_ids = parts.next().unwrap_or_default().to_string();
     if uid.trim().is_empty() {
         return Err(FirebaseError::Native {
             message: "user uid missing in host reply".into(),
         });
     }
-    Ok(User::from_host_fields(uid, email, display_name))
+    Ok(User::from_host_fields(
+        uid,
+        email,
+        display_name,
+        provider_ids,
+    ))
 }
 
 fn parse_ok_body(reply: &str) -> Result<Option<&str>, FirebaseError> {
@@ -126,17 +135,59 @@ mod tests {
         uid: "uid1".into(),
         email: Some("a@b.c".into()),
         display_name: Some("Ada".into()),
+        provider_ids: vec![],
     })))]
     #[case("OK\x1fuid1\x1f\x1f", Ok(Some(User {
         uid: "uid1".into(),
         email: None,
         display_name: None,
+        provider_ids: vec![],
+    })))]
+    #[case("OK\x1fuid1\x1fa@b.c\x1fAda\x1fpassword,google.com", Ok(Some(User {
+        uid: "uid1".into(),
+        email: Some("a@b.c".into()),
+        display_name: Some("Ada".into()),
+        provider_ids: vec!["password".into(), "google.com".into()],
+    })))]
+    #[case("OK\x1fuid1\x1f\x1f\x1fapple.com", Ok(Some(User {
+        uid: "uid1".into(),
+        email: None,
+        display_name: None,
+        provider_ids: vec!["apple.com".into()],
+    })))]
+    #[case("OK\x1fuid1\x1fa@b.c\x1fAda\x1f", Ok(Some(User {
+        uid: "uid1".into(),
+        email: Some("a@b.c".into()),
+        display_name: Some("Ada".into()),
+        provider_ids: vec![],
     })))]
     fn test_parse_optional_user(
         #[case] input: &str,
         #[case] expected: Result<Option<User>, FirebaseError>,
     ) {
         assert_eq!(parse_optional_user(input), expected);
+    }
+
+    #[rstest]
+    #[case(
+        "OK\x1fuid1\x1fa@b.c\x1fAda\x1fpassword,apple.com",
+        User {
+            uid: "uid1".into(),
+            email: Some("a@b.c".into()),
+            display_name: Some("Ada".into()),
+            provider_ids: vec!["password".into(), "apple.com".into()],
+        }
+    )]
+    fn test_parse_user_with_providers(#[case] input: &str, #[case] expected: User) {
+        assert_eq!(parse_user(input).unwrap(), expected);
+    }
+
+    #[rstest]
+    #[case("OK\x1f\x1f\x1f")]
+    #[case("OK\x1f   \x1fa@b.c\x1fAda")]
+    fn test_parse_user_missing_uid(#[case] input: &str) {
+        let err = parse_user(input).unwrap_err();
+        assert!(matches!(err, FirebaseError::Native { .. }));
     }
 
     #[rstest]
@@ -151,6 +202,27 @@ mod tests {
         "Taken"
     )]
     #[case("ERR\x1fnative\x1fCrash message", "native", "Crash message")]
+    #[case("ERR\x1fcancelled\x1fuser cancelled", "cancelled", "user cancelled")]
+    #[case(
+        "ERR\x1funavailable\x1fgoogle_web_client_id is required",
+        "unavailable",
+        "google_web_client_id is required"
+    )]
+    #[case(
+        "ERR\x1faccount-exists-with-different-credential\x1fExists",
+        "account-exists-with-different-credential",
+        "Exists"
+    )]
+    #[case(
+        "ERR\x1fcredential-already-in-use\x1fIn use",
+        "credential-already-in-use",
+        "In use"
+    )]
+    #[case(
+        "ERR\x1fprovider-already-linked\x1fLinked",
+        "provider-already-linked",
+        "Linked"
+    )]
     fn test_parse_error_codes(
         #[case] raw: &str,
         #[case] expected_code: &str,

@@ -56,6 +56,7 @@ pub(crate) fn initialize(options: &FirebaseOptions) -> Result<(), FirebaseError>
     let messaging_sender_id = options.messaging_sender_id.clone().unwrap_or_default();
     let storage_bucket = options.storage_bucket.clone().unwrap_or_default();
     let database_url = options.database_url.clone().unwrap_or_default();
+    let google_web_client_id = options.google_web_client_id.clone().unwrap_or_default();
 
     with_host(|env, host, context| {
         env.exception_clear();
@@ -65,13 +66,14 @@ pub(crate) fn initialize(options: &FirebaseOptions) -> Result<(), FirebaseError>
         let messaging_sender_id = env.new_string(&messaging_sender_id)?;
         let storage_bucket = env.new_string(&storage_bucket)?;
         let database_url = env.new_string(&database_url)?;
+        let google_web_client_id = env.new_string(&google_web_client_id)?;
 
         let reply = env
             .call_static_method(
                 host,
                 jni_str!("initialize"),
                 jni_sig!(
-                    "(Landroid/content/Context;Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;)Ljava/lang/String;"
+                    "(Landroid/content/Context;Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;)Ljava/lang/String;"
                 ),
                 &[
                     JValue::Object(context),
@@ -81,6 +83,7 @@ pub(crate) fn initialize(options: &FirebaseOptions) -> Result<(), FirebaseError>
                     JValue::Object(&messaging_sender_id),
                     JValue::Object(&storage_bucket),
                     JValue::Object(&database_url),
+                    JValue::Object(&google_web_client_id),
                 ],
             )
             .map_err(|e| map_exception(env, e, "DioxusFirebaseAuthHost.initialize"))?
@@ -190,6 +193,42 @@ pub(crate) fn subscribe_auth_state() -> Result<(), FirebaseError> {
             .l()?;
         map_string_reply(env, reply, parse_void)
     })
+}
+
+pub(crate) fn sign_in_with_google() -> Result<User, FirebaseError> {
+    call_no_args(
+        jni_str!("signInWithGoogle"),
+        "DioxusFirebaseAuthHost.signInWithGoogle",
+        parse_user,
+    )
+}
+
+pub(crate) fn link_with_google() -> Result<User, FirebaseError> {
+    call_no_args(
+        jni_str!("linkWithGoogle"),
+        "DioxusFirebaseAuthHost.linkWithGoogle",
+        parse_user,
+    )
+}
+
+// Apple Sign-In blocked for now — re-enable when Console + OAuth are ready.
+#[allow(dead_code)]
+pub(crate) fn sign_in_with_apple() -> Result<User, FirebaseError> {
+    call_no_args(
+        jni_str!("signInWithApple"),
+        "DioxusFirebaseAuthHost.signInWithApple",
+        parse_user,
+    )
+}
+
+// Apple Sign-In blocked for now — re-enable when Console + OAuth are ready.
+#[allow(dead_code)]
+pub(crate) fn link_with_apple() -> Result<User, FirebaseError> {
+    call_no_args(
+        jni_str!("linkWithApple"),
+        "DioxusFirebaseAuthHost.linkWithApple",
+        parse_user,
+    )
 }
 
 // --- JNI Dispatch Helpers ---
@@ -500,6 +539,7 @@ mod tests {
             messaging_sender_id: None,
             storage_bucket: None,
             database_url: None,
+            google_web_client_id: None,
         };
 
         assert!(matches!(
@@ -542,5 +582,22 @@ mod tests {
             subscribe_auth_state().unwrap_err(),
             FirebaseError::HostMissing(_)
         ));
+        assert!(matches!(
+            sign_in_with_google().unwrap_err(),
+            FirebaseError::HostMissing(_)
+        ));
+        // Apple Sign-In blocked for now — re-enable when Console + OAuth are ready.
+        // assert!(matches!(
+        //     sign_in_with_apple().unwrap_err(),
+        //     FirebaseError::HostMissing(_)
+        // ));
+        assert!(matches!(
+            link_with_google().unwrap_err(),
+            FirebaseError::HostMissing(_)
+        ));
+        // assert!(matches!(
+        //     link_with_apple().unwrap_err(),
+        //     FirebaseError::HostMissing(_)
+        // ));
     }
 }

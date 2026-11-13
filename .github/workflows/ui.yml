@@ -52,6 +52,9 @@ jobs:
           curl -fsSL "https://get.maestro.mobile.dev" | bash
           echo "$HOME/.maestro/bin" >> "$GITHUB_PATH"
 
+      - name: Sync bundle id from env
+        run: make sync-bundle-id
+
       - name: Build demo
         run: dx build --example demo --platform ${{ matrix.platform }} --target ${{ matrix.target }}
 
