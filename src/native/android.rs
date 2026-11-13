@@ -203,14 +203,6 @@ pub(crate) fn sign_in_with_google() -> Result<User, FirebaseError> {
     )
 }
 
-pub(crate) fn sign_in_with_apple() -> Result<User, FirebaseError> {
-    call_no_args(
-        jni_str!("signInWithApple"),
-        "DioxusFirebaseAuthHost.signInWithApple",
-        parse_user,
-    )
-}
-
 pub(crate) fn link_with_google() -> Result<User, FirebaseError> {
     call_no_args(
         jni_str!("linkWithGoogle"),
@@ -219,6 +211,18 @@ pub(crate) fn link_with_google() -> Result<User, FirebaseError> {
     )
 }
 
+// Apple Sign-In blocked for now — re-enable when Console + OAuth are ready.
+#[allow(dead_code)]
+pub(crate) fn sign_in_with_apple() -> Result<User, FirebaseError> {
+    call_no_args(
+        jni_str!("signInWithApple"),
+        "DioxusFirebaseAuthHost.signInWithApple",
+        parse_user,
+    )
+}
+
+// Apple Sign-In blocked for now — re-enable when Console + OAuth are ready.
+#[allow(dead_code)]
 pub(crate) fn link_with_apple() -> Result<User, FirebaseError> {
     call_no_args(
         jni_str!("linkWithApple"),
@@ -582,17 +586,18 @@ mod tests {
             sign_in_with_google().unwrap_err(),
             FirebaseError::HostMissing(_)
         ));
-        assert!(matches!(
-            sign_in_with_apple().unwrap_err(),
-            FirebaseError::HostMissing(_)
-        ));
+        // Apple Sign-In blocked for now — re-enable when Console + OAuth are ready.
+        // assert!(matches!(
+        //     sign_in_with_apple().unwrap_err(),
+        //     FirebaseError::HostMissing(_)
+        // ));
         assert!(matches!(
             link_with_google().unwrap_err(),
             FirebaseError::HostMissing(_)
         ));
-        assert!(matches!(
-            link_with_apple().unwrap_err(),
-            FirebaseError::HostMissing(_)
-        ));
+        // assert!(matches!(
+        //     link_with_apple().unwrap_err(),
+        //     FirebaseError::HostMissing(_)
+        // ));
     }
 }

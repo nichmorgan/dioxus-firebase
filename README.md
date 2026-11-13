@@ -1,6 +1,6 @@
 # dioxus-firebase
 
-**Unofficial** [Dioxus](https://dioxuslabs.com/) bridge for [Firebase Auth](https://firebase.google.com/docs/auth) (email/password, Google, Apple).
+**Unofficial** [Dioxus](https://dioxuslabs.com/) bridge for [Firebase Auth](https://firebase.google.com/docs/auth) (email/password, Google).
 
 **Mobile only for now** (iOS and Android). Web and desktop return `UnsupportedPlatform`.
 
@@ -8,7 +8,7 @@ This crate is **not affiliated** with Google / Firebase. [JusFine](https://githu
 
 ## Status
 
-Early — email/password plus Google and Apple sign-in/link. No phone auth, email verification, or custom claims.
+Early — email/password plus Google sign-in/link. Apple Sign-In is implemented in the native hosts but **not exported** yet (blocked). No phone auth, email verification, or custom claims.
 
 ## Architecture
 
@@ -26,7 +26,7 @@ Native calls go through a thin host — Kotlin on Android (auto-bundled by Dioxu
 | Layer | Owns |
 | -- | -- |
 | **Library** | Auth primitives, structured **wire** error codes, native persistence, token refresh, auth-state listener |
-| **App** | `FirebaseOptions` (api key, app id, project id, optional Google web client ID, staging vs prod), Console provider enablement, Android SHA-1, iOS Sign in with Apple capability / Google URL schemes, PT-BR / localized copy, route gates |
+| **App** | `FirebaseOptions` (api key, app id, project id, optional Google web client ID, staging vs prod), Console provider enablement, Android SHA-1, iOS Google URL schemes, PT-BR / localized copy, route gates |
 
 Do **not** put `google-services.json` keys inside this library. The app passes options at init.
 
@@ -54,21 +54,21 @@ Double-init returns `AlreadyInitialized`. Desktop / web builds return `Unsupport
 
 Call mutations (`sign_in_with_email`, `sign_in_with_google`, …) from `spawn_blocking` (or another worker thread) — not Dioxus `spawn`, which is often still the UI thread on iOS. Social flows present a system sheet on the main thread, then wait on the worker for the credential and Firebase Task.
 
-### Google / Apple app setup
+### Google app setup
 
-Same Rust APIs on both platforms (`sign_in_with_google` / `sign_in_with_apple` / `link_with_*`). Enable Google and/or Apple under Authentication in the Firebase Console. Pass the OAuth **web** client ID as `google_web_client_id` when using Google. Wire codes include `cancelled` (sheet dismissed) and `unavailable` (missing client ID / Activity / presentation). Federated sign-in against the Auth emulator is limited — keep email/emulator for CI; exercise live Google/Apple on a real project.
+Same Rust APIs on both platforms (`sign_in_with_google` / `link_with_google`). Enable Google under Authentication in the Firebase Console. Pass the OAuth **web** client ID as `google_web_client_id`. Wire codes include `cancelled` (sheet dismissed) and `unavailable` (missing client ID / Activity / presentation). Federated sign-in against the Auth emulator is limited — keep email/emulator for CI; exercise live Google on a real project.
+
+Apple Sign-In host code remains in the Android/iOS hosts but is **not exported** from the Rust API yet (blocked — re-enable later).
 
 **Android**
 
-- Register the app’s SHA-1 in Firebase Console (Google and Apple).
-- Google uses Credential Manager with `google_web_client_id` as `serverClientId` (Play services on device; `minSdk` stays 24).
-- Apple uses Firebase-managed Custom Tabs (`OAuthProvider`). Configure an Apple Services ID, return URL `https://PROJECT_ID.firebaseapp.com/__/auth/handler`, and OAuth code-flow keys (Team ID, key, key ID) in Console. The host checks `pendingAuthResult` before starting a new Custom Tab flow if the Activity was reclaimed mid-login.
+- Register the app’s **debug SHA-1** in Firebase Console for the Android app whose `GOOGLE_APP_ID` you pass. Sync the demo package with `ANDROID_APPLICATION_ID` + `make sync-bundle-id`.
+- Google uses Credential Manager with `google_web_client_id` as `serverClientId` (Play services on device; `minSdk` stays 24). The host tries One Tap (`GetGoogleIdOption`), then falls back to the Sign in with Google button flow (`GetSignInWithGoogleOption`) when no matching credential is found.
 - `sign_out` clears Firebase Auth and best-effort Credential Manager state.
 
 **iOS**
 
 - Google: pass `google_web_client_id` and/or set `GIDClientID` in Info.plist; add the reversed client ID URL scheme. The **app** must forward open-URL callbacks to `GIDSignIn.sharedInstance.handle(url)` (scene / app delegate — Dioxus owns that path).
-- Apple: enable the Sign in with Apple capability / entitlements on the **app**. The host generates the nonce and builds `OAuthProvider.appleCredential` (including `fullName` on first sign-in).
 - `sign_out` clears Firebase Auth and best-effort `GIDSignIn` session state.
 
 ## Auth-state + Dioxus signals
@@ -190,16 +190,23 @@ On a Mac, boot a simulator first (CI does this with `xcrun simctl`) or set `CARG
 
 ## Demo
 
-[`examples/demo.rs`](examples/demo.rs) talks to the Auth emulator at `10.0.2.2:9099` on the Android emulator, and at `127.0.0.1:9099` on a physical Android device or the iOS simulator (see [Emulator](#emulator)). Start the emulator, then serve the example. On a USB Android device, reverse the Auth port first:
+[`examples/demo.rs`](examples/demo.rs) is a home grid of feature tiles (Email & Password, Google, Account). Apple is hidden until Sign-In is re-enabled. `cp .env.example .env` and choose a mode:
+
+- **Emulator (email / Maestro):** leave project keys empty (or set `FIREBASE_USE_AUTH_EMULATOR=1`). The demo uses `demo-project` and talks to the Auth emulator at `10.0.2.2:9099` on the Android emulator, or `127.0.0.1:9099` on a physical Android device / iOS simulator (see [Emulator](#emulator)).
+- **Live (real Firebase):** set `FIREBASE_API_KEY`, `FIREBASE_APP_ID` (platform-matched `…:android:…` or `…:ios:…`), `FIREBASE_PROJECT_ID`, and `FIREBASE_GOOGLE_WEB_CLIENT_ID`, then set `FIREBASE_USE_AUTH_EMULATOR=0`. Set `ANDROID_APPLICATION_ID` to the Firebase Android app package (must match `FIREBASE_APP_ID`), run `make sync-bundle-id`, then rebuild (`dx serve` / `dx build`). Checklist:
+  - Enable Email / Google under Authentication in the Firebase Console
+  - Android: add the **built APK’s** SHA-1 (`apksigner verify --print-certs …/app-debug.apk`) on the Android app that matches `FIREBASE_APP_ID` / `ANDROID_APPLICATION_ID` (dx may not use `~/.android/debug.keystore`)
+  - Empty `ANDROID_APPLICATION_ID` + `make sync-bundle-id` restores the default package for Maestro / CI. Maestro flows use `appId: ${ANDROID_APPLICATION_ID}` (passed by `make maestro`); do not put a package name in `.maestro/*.yaml`
 
 ```bash
+# Emulator mode only — skip make emulator / adb reverse when FIREBASE_USE_AUTH_EMULATOR=0
 adb reverse tcp:9099 tcp:9099
 make emulator
 dx serve --example demo --platform android
 dx serve --example demo --platform ios
 ```
 
-[`.maestro/`](.maestro/) signs up with the prefilled account, then logs in with it. The suite does not delete accounts. A re-run needs a new `make emulator` or `make maestro`, because nothing clears accounts inside a running emulator. `make maestro` starts an empty Auth emulator, runs both flows against that process, and shuts it down. [`.github/workflows/ui.yml`](.github/workflows/ui.yml) runs both flows on an Android emulator and an iOS simulator. Locally, with the demo installed on a booted device:
+[`.maestro/`](.maestro/) opens the Email & Password tile, signs up with the prefilled account, then logs in with it. The suite does not delete accounts. A re-run needs a new `make emulator` or `make maestro`, because nothing clears accounts inside a running emulator. `make maestro` starts an empty Auth emulator, runs both flows against that process, and shuts it down. [`.github/workflows/ui.yml`](.github/workflows/ui.yml) runs both flows on an Android emulator and an iOS simulator. Locally, with the demo installed on a booted device:
 
 ```bash
 # USB Android device only. The Android emulator reaches the host at 10.0.2.2.

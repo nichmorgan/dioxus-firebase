@@ -1,5 +1,5 @@
 [bundle]
-identifier = "com.example.demo"
+identifier = "com.jusfine.v2.staging"
 
 [ios.plist]
 NSAppTransportSecurity = { NSAllowsLocalNetworking = true }

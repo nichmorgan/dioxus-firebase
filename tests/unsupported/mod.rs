@@ -16,9 +16,10 @@ enum Primitive {
     SignInWithEmail,
     CurrentUser,
     SignInWithGoogle,
-    SignInWithApple,
+    // Apple Sign-In blocked for now — re-enable when Console + OAuth are ready.
+    // SignInWithApple,
     LinkWithGoogle,
-    LinkWithApple,
+    // LinkWithApple,
 }
 
 fn call_primitive(which: Primitive) -> Result<(), FirebaseError> {
@@ -26,9 +27,9 @@ fn call_primitive(which: Primitive) -> Result<(), FirebaseError> {
         Primitive::SignInWithEmail => sign_in_with_email("a@b.c", "pass").map(|_| ()),
         Primitive::CurrentUser => current_user().map(|_| ()),
         Primitive::SignInWithGoogle => sign_in_with_google().map(|_| ()),
-        Primitive::SignInWithApple => sign_in_with_apple().map(|_| ()),
+        // Primitive::SignInWithApple => sign_in_with_apple().map(|_| ()),
         Primitive::LinkWithGoogle => link_with_google().map(|_| ()),
-        Primitive::LinkWithApple => link_with_apple().map(|_| ()),
+        // Primitive::LinkWithApple => link_with_apple().map(|_| ()),
     }
 }
 
@@ -36,9 +37,9 @@ fn call_primitive(which: Primitive) -> Result<(), FirebaseError> {
 #[case(Primitive::SignInWithEmail)]
 #[case(Primitive::CurrentUser)]
 #[case(Primitive::SignInWithGoogle)]
-#[case(Primitive::SignInWithApple)]
+// #[case(Primitive::SignInWithApple)]
 #[case(Primitive::LinkWithGoogle)]
-#[case(Primitive::LinkWithApple)]
+// #[case(Primitive::LinkWithApple)]
 fn test_primitives_require_init_on_desktop(#[case] which: Primitive) {
     assert_eq!(
         call_primitive(which).unwrap_err(),

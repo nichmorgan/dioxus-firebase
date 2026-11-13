@@ -15,9 +15,11 @@ import androidx.credentials.GetCredentialResponse
 import androidx.credentials.exceptions.ClearCredentialException
 import androidx.credentials.exceptions.GetCredentialCancellationException
 import androidx.credentials.exceptions.GetCredentialException
+import androidx.credentials.exceptions.NoCredentialException
 import com.google.android.gms.tasks.Task
 import com.google.android.gms.tasks.Tasks
 import com.google.android.libraries.identity.googleid.GetGoogleIdOption
+import com.google.android.libraries.identity.googleid.GetSignInWithGoogleOption
 import com.google.android.libraries.identity.googleid.GoogleIdTokenCredential
 import com.google.firebase.FirebaseApp
 import com.google.firebase.FirebaseOptions
@@ -279,10 +281,41 @@ object DioxusFirebaseAuthHost {
             .setServerClientId(serverClientId)
             .setAutoSelectEnabled(false)
             .build()
-        val request = GetCredentialRequest.Builder()
+        val oneTap = GetCredentialRequest.Builder()
             .addCredentialOption(googleIdOption)
             .build()
 
+        when (val first = getCredential(activity, oneTap)) {
+            is CredentialResult.Ok -> return first
+            is CredentialResult.Err -> {
+                if (!shouldFallbackToSignInWithGoogle(first.reply)) {
+                    return first
+                }
+            }
+        }
+
+        // One Tap found no matching credential — show the Sign in with Google button flow.
+        val signInOption = GetSignInWithGoogleOption.Builder(serverClientId).build()
+        val buttonFlow = GetCredentialRequest.Builder()
+            .addCredentialOption(signInOption)
+            .build()
+        return getCredential(activity, buttonFlow)
+    }
+
+    /** True when One Tap failed for lack of credentials (not user cancel). */
+    private fun shouldFallbackToSignInWithGoogle(errReply: String): Boolean {
+        // Wire form: ERR\u001f<code>\u001f<message>
+        val parts = errReply.split('\u001f')
+        if (parts.size < 3 || parts[0] != "ERR") return false
+        if (parts[1] == "cancelled") return false
+        val message = parts[2]
+        return message.contains("Cannot find a matching credential", ignoreCase = true) ||
+            message.contains("No credentials available", ignoreCase = true) ||
+            message.contains("[28433]") ||
+            Regex("""\b16\b""").containsMatchIn(message)
+    }
+
+    private fun getCredential(activity: Activity, request: GetCredentialRequest): CredentialResult {
         val latch = CountDownLatch(1)
         val result = AtomicReference<CredentialResult>()
         val manager = CredentialManager.create(activity)
@@ -305,6 +338,8 @@ object DioxusFirebaseAuthHost {
                                 when (e) {
                                     is GetCredentialCancellationException ->
                                         err("cancelled", e.message ?: "user cancelled Google sign-in")
+                                    is NoCredentialException ->
+                                        err("unavailable", e.message ?: "No credentials available")
                                     else -> err("unavailable", e.message ?: e.toString())
                                 },
                             ),

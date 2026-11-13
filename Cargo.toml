@@ -38,6 +38,9 @@ ndk-context = "0.1"
 [target.'cfg(target_os = "ios")'.dependencies]
 objc = "0.2"
 
+[build-dependencies]
+dotenvy = "0.15"
+
 [dev-dependencies]
 dioxus = { version = "0.7.10", features = ["desktop"] }
 rstest = "0.28.0"

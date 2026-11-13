@@ -1,4 +1,5 @@
-//! Auth primitives (email/password + Google/Apple) and token helpers.
+//! Auth primitives (email/password + Google) and token helpers.
+//! Apple Sign-In helpers remain below but are not re-exported (blocked for now).
 
 use crate::error::FirebaseError;
 use crate::host_protocol::{require_email, require_email_password};
@@ -93,14 +94,6 @@ pub fn sign_in_with_google() -> Result<User, FirebaseError> {
     native::sign_in_with_google()
 }
 
-/// Sign in (or create a session) with Apple.
-///
-/// Presents Sign in with Apple. Call from `spawn_blocking` / a worker thread.
-pub fn sign_in_with_apple() -> Result<User, FirebaseError> {
-    require_initialized()?;
-    native::sign_in_with_apple()
-}
-
 /// Link Google to the **current** user (`linkWithCredential`).
 ///
 /// Fails with a wire auth code when signed out or when the credential is
@@ -110,6 +103,19 @@ pub fn link_with_google() -> Result<User, FirebaseError> {
     native::link_with_google()
 }
 
+// Apple Sign-In blocked for now — re-enable when Console + OAuth are ready.
+// Keep bodies; not re-exported from `lib` / `prelude`.
+#[allow(dead_code)]
+/// Sign in (or create a session) with Apple.
+///
+/// Presents Sign in with Apple. Call from `spawn_blocking` / a worker thread.
+pub fn sign_in_with_apple() -> Result<User, FirebaseError> {
+    require_initialized()?;
+    native::sign_in_with_apple()
+}
+
+// Apple Sign-In blocked for now — re-enable when Console + OAuth are ready.
+#[allow(dead_code)]
 /// Link Apple to the **current** user (`linkWithCredential`).
 ///
 /// Fails with a wire auth code when signed out or when the credential is
