@@ -450,12 +450,9 @@ object DioxusFirebaseAuthHost {
             if (cur is FirebaseAuthException) {
                 return err(toWireCode(cur.errorCode), cur.message ?: cur.errorCode)
             }
-            val message = cur.message.orEmpty()
-            if (message.contains("canceled", ignoreCase = true) ||
-                message.contains("cancelled", ignoreCase = true)
-            ) {
-                return err("cancelled", message)
-            }
+            // Do not substring-match "canceled"/"cancelled" in messages — that
+            // mislabels Task/worker failures as user dismiss. Real sheet dismiss
+            // is already `GetCredentialCancellationException` in getCredential.
             cur = cur.cause
         }
         return err("native", t.message ?: t.toString())
