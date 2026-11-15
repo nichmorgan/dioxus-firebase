@@ -71,6 +71,13 @@ pub(crate) fn update_display_name(display_name: &str) -> Result<(), FirebaseErro
     map_reply(reply, parse_void)
 }
 
+pub(crate) fn update_photo_url(photo_url: &str) -> Result<(), FirebaseError> {
+    let host = host_class()?;
+    let url = nsstring(photo_url)?;
+    let reply: *mut Object = unsafe { msg_send![host, updatePhotoUrl: url] };
+    map_reply(reply, parse_void)
+}
+
 pub(crate) fn send_password_reset_email(email: &str) -> Result<(), FirebaseError> {
     let host = host_class()?;
     let email = nsstring(email)?;
@@ -121,6 +128,13 @@ pub(crate) fn sign_in_with_google() -> Result<User, FirebaseError> {
 pub(crate) fn link_with_google() -> Result<User, FirebaseError> {
     let host = host_class()?;
     let reply: *mut Object = unsafe { msg_send![host, linkWithGoogle] };
+    map_reply(reply, parse_user)
+}
+
+pub(crate) fn unlink_provider(provider_id: &str) -> Result<User, FirebaseError> {
+    let host = host_class()?;
+    let provider = nsstring(provider_id)?;
+    let reply: *mut Object = unsafe { msg_send![host, unlinkProvider: provider] };
     map_reply(reply, parse_user)
 }
 
@@ -329,6 +343,10 @@ mod tests {
             FirebaseError::HostMissing(_)
         ));
         assert!(matches!(
+            update_photo_url("https://ex/p.png").unwrap_err(),
+            FirebaseError::HostMissing(_)
+        ));
+        assert!(matches!(
             send_password_reset_email("a@b.c").unwrap_err(),
             FirebaseError::HostMissing(_)
         ));
@@ -369,6 +387,10 @@ mod tests {
         //     link_with_apple().unwrap_err(),
         //     FirebaseError::HostMissing(_)
         // ));
+        assert!(matches!(
+            unlink_provider("google.com").unwrap_err(),
+            FirebaseError::HostMissing(_)
+        ));
     }
 
     #[rstest]

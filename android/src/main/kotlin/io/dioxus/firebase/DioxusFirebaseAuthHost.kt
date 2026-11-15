@@ -3,6 +3,7 @@ package io.dioxus.firebase
 import android.app.Activity
 import android.content.Context
 import android.content.ContextWrapper
+import android.net.Uri
 import android.os.CancellationSignal
 import android.os.Handler
 import android.os.Looper
@@ -42,12 +43,14 @@ import java.util.concurrent.atomic.AtomicReference
  *
  * Reply protocol (matches Rust `host_protocol`):
  * - success void: `OK`
- * - success user: `OK\u001fuid\u001femail\u001fdisplayName\u001fproviderIds`
+ * - success user: `OK\u001fuid\u001femail\u001fdisplayName\u001fproviderIds[\u001fphotoURL]`
  * - success optional string: `OK` or `OK\u001fvalue`
  * - error: `ERR\u001f<code>\u001f<message>`
  *
  * `providerIds` is a comma-separated list from `FirebaseUser.providerData`
- * (e.g. `password,google.com`).
+ * (e.g. `password,google.com`). Wire email/photo prefer Google then Apple
+ * `UserInfo`; displayName prefers top-level then Google then Apple
+ * (keep in sync with Rust `prefer_profile_fields`).
  */
 object DioxusFirebaseAuthHost {
     private const val UNIT = '\u001f'
@@ -115,14 +118,12 @@ object DioxusFirebaseAuthHost {
         awaitTask({ auth.createUserWithEmailAndPassword(email.trim(), password) }) { okUser(it.user) }
 
     @JvmStatic
-    fun updateDisplayName(displayName: String): String {
-        val user = auth.currentUser ?: return err("requires-recent-login", "no current user")
-        val request = UserProfileChangeRequest.Builder().setDisplayName(displayName).build()
-        return awaitTask({
-            Tasks.await(user.updateProfile(request), TASK_TIMEOUT_SECONDS, TimeUnit.SECONDS)
-            user.reload()
-        }) { ok() }
-    }
+    fun updateDisplayName(displayName: String): String =
+        updateProfile(displayName = displayName, photoUrl = null)
+
+    @JvmStatic
+    fun updatePhotoUrl(photoUrl: String): String =
+        updateProfile(displayName = null, photoUrl = photoUrl)
 
     @JvmStatic
     fun sendPasswordResetEmail(email: String): String =
@@ -158,11 +159,13 @@ object DioxusFirebaseAuthHost {
     @JvmStatic
     fun subscribeAuthState(): String {
         if (!subscribed.compareAndSet(false, true)) {
-            onAuthStateChanged(userPayload(auth.currentUser))
+            onAuthStateChanged(auth.currentUser?.let(::userFields))
             return ok()
         }
         return safeCall {
-            auth.addAuthStateListener { a -> onAuthStateChanged(userPayload(a.currentUser)) }
+            auth.addAuthStateListener { a ->
+                onAuthStateChanged(a.currentUser?.let(::userFields))
+            }
             ok()
         }
     }
@@ -178,6 +181,17 @@ object DioxusFirebaseAuthHost {
 
     @JvmStatic
     fun linkWithApple(): String = signInOrLinkWithApple(link = true)
+
+    /** Unlink a provider id (e.g. `google.com`). Prefer unlink then link to change store identity. */
+    @JvmStatic
+    fun unlink(providerId: String): String {
+        val user = auth.currentUser ?: return err("requires-recent-login", "no current user")
+        val id = providerId.trim()
+        if (id.isEmpty()) {
+            return err("invalid-argument", "provider_id must not be empty")
+        }
+        return awaitTask({ user.unlink(id) }) { okUser(it.user) }
+    }
 
     /** Implemented in Rust via [JNIEnv.RegisterNatives]. */
     @JvmStatic
@@ -429,16 +443,56 @@ object DioxusFirebaseAuthHost {
     private fun okUser(user: FirebaseUser?): String =
         user?.let { "OK$UNIT${userFields(it)}" } ?: ok()
 
-    private fun userPayload(user: FirebaseUser?): String? =
-        user?.let(::userFields)
-
+    /**
+     * Keep preference rules in sync with Rust `prefer_profile_fields`:
+     * email/photo = google → apple → top-level; displayName = top-level → google → apple.
+     */
     private fun userFields(user: FirebaseUser): String {
-        val providers = user.providerData
+        val providerData = user.providerData
+        val providers = providerData
             .map { it.providerId }
             .filter { it.isNotBlank() && it != "firebase" }
             .distinct()
             .joinToString(",")
-        return "${user.uid}$UNIT${user.email.orEmpty()}$UNIT${user.displayName.orEmpty()}$UNIT$providers"
+        val google = providerData.firstOrNull { it.providerId == GoogleAuthProvider.PROVIDER_ID }
+        val apple = providerData.firstOrNull { it.providerId == "apple.com" }
+        val email = pickNonBlank(google?.email, apple?.email, user.email)
+        val displayName = pickNonBlank(user.displayName, google?.displayName, apple?.displayName)
+        val photo = pickNonBlank(
+            google?.photoUrl?.toString(),
+            apple?.photoUrl?.toString(),
+            user.photoUrl?.toString(),
+        )
+        return "${user.uid}$UNIT$email$UNIT$displayName$UNIT$providers$UNIT$photo"
+    }
+
+    private fun pickNonBlank(vararg candidates: String?): String {
+        for (c in candidates) {
+            val t = c?.trim().orEmpty()
+            if (t.isNotEmpty()) return t
+        }
+        return ""
+    }
+
+    private fun updateProfile(displayName: String?, photoUrl: String?): String {
+        val user = auth.currentUser ?: return err("requires-recent-login", "no current user")
+        val builder = UserProfileChangeRequest.Builder()
+        if (displayName != null) {
+            builder.setDisplayName(displayName)
+        }
+        if (photoUrl != null) {
+            val trimmed = photoUrl.trim()
+            if (trimmed.isEmpty()) {
+                builder.setPhotoUri(null)
+            } else {
+                builder.setPhotoUri(Uri.parse(trimmed))
+            }
+        }
+        val request = builder.build()
+        return awaitTask({
+            Tasks.await(user.updateProfile(request), TASK_TIMEOUT_SECONDS, TimeUnit.SECONDS)
+            user.reload()
+        }) { ok() }
     }
 
     private fun err(code: String, message: String): String =

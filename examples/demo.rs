@@ -538,6 +538,7 @@ fn account_body(
             let uid = user.uid.clone();
             let email = user.email.clone().unwrap_or_else(|| "N/A".into());
             let name = user.display_name.clone().unwrap_or_else(|| "N/A".into());
+            let photo = user.photo_url.clone().unwrap_or_else(|| "N/A".into());
             let providers = user.provider_ids.join(", ");
             rsx! {
                 div { class: "panel",
@@ -552,6 +553,10 @@ fn account_body(
                     p {
                         strong { "Display Name: " }
                         "{name}"
+                    }
+                    p {
+                        strong { "Photo URL: " }
+                        "{photo}"
                     }
                     p {
                         strong { "Providers: " }

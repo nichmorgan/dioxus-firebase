@@ -8,7 +8,7 @@ This crate is **not affiliated** with Google / Firebase. [JusFine](https://githu
 
 ## Status
 
-Early — email/password plus Google sign-in/link. Apple Sign-In is implemented in the native hosts but **not exported** yet (blocked). No phone auth, email verification, or custom claims.
+Early — email/password plus Google sign-in/link/unlink, profile display name / photo URL. Apple Sign-In is implemented in the native hosts but **not exported** yet (blocked). No phone auth, email verification, or custom claims.
 
 ## Architecture
 
@@ -115,10 +115,27 @@ Failures return `FirebaseError::Auth { code, message }` with Firebase-style wire
 - `account-exists-with-different-credential`
 - `credential-already-in-use`
 - `provider-already-linked`
+- `no-such-provider` (unlink of a provider that is not linked)
+- `requires-recent-login` (sensitive op needs a fresh sign-in)
 - `cancelled` (user dismissed the system sheet)
 - `unavailable` (missing client ID / Activity / presentation context)
 
-`User.provider_ids` lists linked providers (`password`, `google.com`, `apple.com`, …) on every snapshot, including auth-state callbacks.
+### User snapshot / wire profile
+
+Auth-state and OK-user replies use:
+
+`uid\x1femail\x1fdisplayName\x1fproviderIds[\x1fphotoURL]`
+
+(`\x1f` unit separator). Missing trailing fields stay backward-compatible (`photo_url` / empty `provider_ids`).
+
+`User.provider_ids` lists linked providers (`password`, `google.com`, `apple.com`, …). Hosts prefer linked **Google then Apple** `UserInfo` for **email** and **photoURL**, and prefer **top-level then Google then Apple** for **displayName** (so `update_display_name` wins when set). Keep host logic in sync with Rust `prefer_profile_fields` tests.
+
+### Link / unlink (no switch API)
+
+- [`link_with_google`](fn@link_with_google) — link Google to the current user
+- [`unlink_provider`](fn@unlink_provider) — pass a provider id (`"google.com"`, `"apple.com"`, `"password"`, …)
+
+There is **no** dedicated “switch store account” helper. To attach a different Google identity to the same Firebase uid: `unlink_provider("google.com")` then `link_with_google()` while still signed in. Signing in with that provider after unlink (without linking) creates a **new** Firebase user (Firebase Auth behavior).
 
 Map codes to user-facing strings in the app (anti-enumeration on login, etc.).
 

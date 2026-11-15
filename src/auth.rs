@@ -34,12 +34,17 @@ pub fn create_user_with_email(
 pub fn update_display_name(display_name: impl AsRef<str>) -> Result<(), FirebaseError> {
     require_initialized()?;
     native::update_display_name(display_name.as_ref())?;
-    // Auth state listeners do not fire for profile updates. Republish the
-    // reloaded user so subscribers see display_name.
-    if let Some(user) = native::current_user()? {
-        crate::subscribe::dispatch_auth_state(Some(user));
-    }
-    Ok(())
+    republish_current_user()
+}
+
+/// Update the current user's profile photo URL (empty clears when the host supports it).
+///
+/// Auth-state listeners do not fire for profile updates — subscribers are
+/// republished after a successful reload.
+pub fn update_photo_url(photo_url: impl AsRef<str>) -> Result<(), FirebaseError> {
+    require_initialized()?;
+    native::update_photo_url(photo_url.as_ref())?;
+    republish_current_user()
 }
 
 pub fn send_password_reset_email(email: impl AsRef<str>) -> Result<(), FirebaseError> {
@@ -103,6 +108,26 @@ pub fn link_with_google() -> Result<User, FirebaseError> {
     native::link_with_google()
 }
 
+/// Unlink a provider from the **current** user (`unlink` / `unlink(fromProvider:)`).
+///
+/// Pass a Firebase provider id such as `"google.com"`, `"apple.com"`, or
+/// `"password"`. There is no dedicated “switch store account” API — to attach a
+/// different Google identity, call this then [`link_with_google`] while still
+/// signed in. Signing in with that provider after unlink (without linking)
+/// creates a **new** Firebase user.
+pub fn unlink_provider(provider_id: impl AsRef<str>) -> Result<User, FirebaseError> {
+    require_initialized()?;
+    let provider_id = provider_id.as_ref().trim();
+    if provider_id.is_empty() {
+        return Err(FirebaseError::InvalidConfig(
+            "provider_id must not be empty".into(),
+        ));
+    }
+    let user = native::unlink_provider(provider_id)?;
+    crate::subscribe::dispatch_auth_state(Some(user.clone()));
+    Ok(user)
+}
+
 // Apple Sign-In blocked for now — re-enable when Console + OAuth are ready.
 // Keep bodies; not re-exported from `lib` / `prelude`.
 #[allow(dead_code)]
@@ -123,4 +148,13 @@ pub fn sign_in_with_apple() -> Result<User, FirebaseError> {
 pub fn link_with_apple() -> Result<User, FirebaseError> {
     require_initialized()?;
     native::link_with_apple()
+}
+
+fn republish_current_user() -> Result<(), FirebaseError> {
+    // Auth state listeners do not fire for profile updates. Republish the
+    // reloaded user so subscribers see display_name / photo_url.
+    if let Some(user) = native::current_user()? {
+        crate::subscribe::dispatch_auth_state(Some(user));
+    }
+    Ok(())
 }

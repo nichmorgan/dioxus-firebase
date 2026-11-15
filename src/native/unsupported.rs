@@ -20,6 +20,10 @@ pub(crate) fn update_display_name(_display_name: &str) -> Result<(), FirebaseErr
     Err(FirebaseError::UnsupportedPlatform)
 }
 
+pub(crate) fn update_photo_url(_photo_url: &str) -> Result<(), FirebaseError> {
+    Err(FirebaseError::UnsupportedPlatform)
+}
+
 pub(crate) fn send_password_reset_email(_email: &str) -> Result<(), FirebaseError> {
     Err(FirebaseError::UnsupportedPlatform)
 }
@@ -49,6 +53,10 @@ pub(crate) fn sign_in_with_google() -> Result<User, FirebaseError> {
 }
 
 pub(crate) fn link_with_google() -> Result<User, FirebaseError> {
+    Err(FirebaseError::UnsupportedPlatform)
+}
+
+pub(crate) fn unlink_provider(_provider_id: &str) -> Result<User, FirebaseError> {
     Err(FirebaseError::UnsupportedPlatform)
 }
 

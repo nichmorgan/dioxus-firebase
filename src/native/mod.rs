@@ -48,6 +48,10 @@ pub(crate) fn update_display_name(display_name: &str) -> Result<(), FirebaseErro
     native_call!(update_display_name(display_name))
 }
 
+pub(crate) fn update_photo_url(photo_url: &str) -> Result<(), FirebaseError> {
+    native_call!(update_photo_url(photo_url))
+}
+
 pub(crate) fn send_password_reset_email(email: &str) -> Result<(), FirebaseError> {
     native_call!(send_password_reset_email(email))
 }
@@ -78,6 +82,10 @@ pub(crate) fn sign_in_with_google() -> Result<User, FirebaseError> {
 
 pub(crate) fn link_with_google() -> Result<User, FirebaseError> {
     native_call!(link_with_google())
+}
+
+pub(crate) fn unlink_provider(provider_id: &str) -> Result<User, FirebaseError> {
+    native_call!(unlink_provider(provider_id))
 }
 
 // Apple Sign-In blocked for now — re-enable when Console + OAuth are ready.

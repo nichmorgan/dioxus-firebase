@@ -20,6 +20,8 @@ enum Primitive {
     // SignInWithApple,
     LinkWithGoogle,
     // LinkWithApple,
+    UnlinkProvider,
+    UpdatePhotoUrl,
 }
 
 fn call_primitive(which: Primitive) -> Result<(), FirebaseError> {
@@ -30,6 +32,8 @@ fn call_primitive(which: Primitive) -> Result<(), FirebaseError> {
         // Primitive::SignInWithApple => sign_in_with_apple().map(|_| ()),
         Primitive::LinkWithGoogle => link_with_google().map(|_| ()),
         // Primitive::LinkWithApple => link_with_apple().map(|_| ()),
+        Primitive::UnlinkProvider => unlink_provider("google.com").map(|_| ()),
+        Primitive::UpdatePhotoUrl => update_photo_url("https://ex/p.png"),
     }
 }
 
@@ -40,6 +44,8 @@ fn call_primitive(which: Primitive) -> Result<(), FirebaseError> {
 // #[case(Primitive::SignInWithApple)]
 #[case(Primitive::LinkWithGoogle)]
 // #[case(Primitive::LinkWithApple)]
+#[case(Primitive::UnlinkProvider)]
+#[case(Primitive::UpdatePhotoUrl)]
 fn test_primitives_require_init_on_desktop(#[case] which: Primitive) {
     assert_eq!(
         call_primitive(which).unwrap_err(),

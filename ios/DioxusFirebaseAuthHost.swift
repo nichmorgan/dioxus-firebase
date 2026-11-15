@@ -14,11 +14,13 @@ import GoogleSignIn
 ///
 /// Reply protocol (matches Rust `host_protocol`):
 /// - success void: `OK`
-/// - success user: `OK\u{1f}uid\u{1f}email\u{1f}displayName\u{1f}providerIds`
+/// - success user: `OK\u{1f}uid\u{1f}email\u{1f}displayName\u{1f}providerIds[\u{1f}photoURL]`
 /// - success optional string: `OK` or `OK\u{1f}value`
 /// - error: `ERR\u{1f}<code>\u{1f}<message>` with Firebase Auth wire codes
 ///
-/// `providerIds` is comma-separated (e.g. `password,google.com`).
+/// `providerIds` is comma-separated (e.g. `password,google.com`). Wire email/photo
+/// prefer Google then Apple `UserInfo`; displayName prefers top-level then Google
+/// then Apple (keep in sync with Rust `prefer_profile_fields`).
 @objc(DioxusFirebaseAuthHost)
 public class DioxusFirebaseAuthHost: NSObject {
     private static let unit: Character = "\u{1f}"
@@ -105,21 +107,12 @@ public class DioxusFirebaseAuthHost: NSObject {
 
     @objc(updateDisplayName:)
     public static func updateDisplayName(_ displayName: String) -> String {
-        guard let user = auth.currentUser else {
-            return err("requires-recent-login", "no current user")
-        }
-        let change = user.createProfileChangeRequest()
-        change.displayName = displayName
-        // Profile writes do not refresh the cached user.
-        return awaitVoid { completion in
-            change.commitChanges { error in
-                if let error = error {
-                    completion(error)
-                } else {
-                    user.reload(completion: completion)
-                }
-            }
-        }
+        updateProfile(displayName: displayName, photoURL: nil)
+    }
+
+    @objc(updatePhotoUrl:)
+    public static func updatePhotoUrl(_ photoUrl: String) -> String {
+        updateProfile(displayName: nil, photoURL: photoUrl)
     }
 
     @objc(sendPasswordResetEmail:)
@@ -213,6 +206,27 @@ public class DioxusFirebaseAuthHost: NSObject {
     @objc(linkWithApple)
     public static func linkWithApple() -> String {
         signInOrLinkWithApple(link: true)
+    }
+
+    /// Unlink a provider id (e.g. `google.com`). Prefer unlink then link to change store identity.
+    @objc(unlinkProvider:)
+    public static func unlinkProvider(_ providerId: String) -> String {
+        guard let user = auth.currentUser else {
+            return err("requires-recent-login", "no current user")
+        }
+        let id = providerId.trimmingCharacters(in: .whitespacesAndNewlines)
+        if id.isEmpty {
+            return err("invalid-argument", "provider_id must not be empty")
+        }
+        return awaitReply { finish in
+            user.unlink(fromProvider: id) { unlinked, error in
+                if let error = error {
+                    finish(mapError(error))
+                } else {
+                    finish(okUser(unlinked))
+                }
+            }
+        }
     }
 
     // MARK: - Social
@@ -407,19 +421,61 @@ public class DioxusFirebaseAuthHost: NSObject {
 
     private static func ok() -> String { "OK" }
 
+    /// Keep preference rules in sync with Rust `prefer_profile_fields`.
     private static func userFields(_ user: User) -> String {
-        let email = user.email ?? ""
-        let name = user.displayName ?? ""
         var seen = Set<String>()
         var providers: [String] = []
+        var google: UserInfo?
+        var apple: UserInfo?
         for info in user.providerData {
             let id = info.providerID
             if !id.isEmpty && id != "firebase" && seen.insert(id).inserted {
                 providers.append(id)
             }
+            if id == "google.com" { google = info }
+            if id == "apple.com" { apple = info }
         }
+        let email = pickNonBlank(google?.email, apple?.email, user.email)
+        let name = pickNonBlank(user.displayName, google?.displayName, apple?.displayName)
+        let photo = pickNonBlank(
+            google?.photoURL?.absoluteString,
+            apple?.photoURL?.absoluteString,
+            user.photoURL?.absoluteString
+        )
         let providerIds = providers.joined(separator: ",")
-        return "\(user.uid)\(unit)\(email)\(unit)\(name)\(unit)\(providerIds)"
+        return "\(user.uid)\(unit)\(email)\(unit)\(name)\(unit)\(providerIds)\(unit)\(photo)"
+    }
+
+    private static func pickNonBlank(_ candidates: String?...) -> String {
+        for c in candidates {
+            let t = (c ?? "").trimmingCharacters(in: .whitespacesAndNewlines)
+            if !t.isEmpty { return t }
+        }
+        return ""
+    }
+
+    private static func updateProfile(displayName: String?, photoURL: String?) -> String {
+        guard let user = auth.currentUser else {
+            return err("requires-recent-login", "no current user")
+        }
+        let change = user.createProfileChangeRequest()
+        if let displayName = displayName {
+            change.displayName = displayName
+        }
+        if let photoURL = photoURL {
+            let trimmed = photoURL.trimmingCharacters(in: .whitespacesAndNewlines)
+            change.photoURL = trimmed.isEmpty ? nil : URL(string: trimmed)
+        }
+        // Profile writes do not refresh the cached user.
+        return awaitVoid { completion in
+            change.commitChanges { error in
+                if let error = error {
+                    completion(error)
+                } else {
+                    user.reload(completion: completion)
+                }
+            }
+        }
     }
 
     private static func okUser(_ user: User?) -> String {
@@ -525,6 +581,8 @@ public class DioxusFirebaseAuthHost: NSObject {
             return "credential-already-in-use"
         case .providerAlreadyLinked:
             return "provider-already-linked"
+        case .noSuchProvider:
+            return "no-such-provider"
         default:
             return "unknown"
         }

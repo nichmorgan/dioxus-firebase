@@ -11,6 +11,8 @@ pub struct User {
     pub display_name: Option<String>,
     /// Linked provider ids (e.g. `password`, `google.com`, `apple.com`).
     pub provider_ids: Vec<String>,
+    /// Profile photo URL, when present.
+    pub photo_url: Option<String>,
 }
 
 impl User {
@@ -20,12 +22,14 @@ impl User {
         email: String,
         display_name: String,
         provider_ids: String,
+        photo_url: String,
     ) -> Self {
         Self {
             uid,
             email: nonempty(email),
             display_name: nonempty(display_name),
             provider_ids: parse_provider_ids(provider_ids),
+            photo_url: nonempty(photo_url),
         }
     }
 }
@@ -51,6 +55,7 @@ fn parse_provider_ids(raw: String) -> Vec<String> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::test_support::sample_user;
     use rstest::rstest;
 
     #[rstest]
@@ -80,37 +85,29 @@ mod tests {
 
     #[rstest]
     #[case(
-        "uid123", "user@example.com", "John Doe", "password",
-        User {
-            uid: "uid123".into(),
-            email: Some("user@example.com".into()),
-            display_name: Some("John Doe".into()),
-            provider_ids: vec!["password".into()],
-        }
+        "uid123", "user@example.com", "John Doe", "password", "",
+        sample_user("uid123", "user@example.com", "John Doe", &["password"], "")
     )]
     #[case(
-        "uid123", "", "  ", "",
-        User {
-            uid: "uid123".into(),
-            email: None,
-            display_name: None,
-            provider_ids: vec![],
-        }
+        "uid123", "", "  ", "", "  ",
+        sample_user("uid123", "", "", &[], "")
     )]
     #[case(
-        "uid123", "a@b.c", "Ada", "password,google.com,apple.com",
-        User {
-            uid: "uid123".into(),
-            email: Some("a@b.c".into()),
-            display_name: Some("Ada".into()),
-            provider_ids: vec!["password".into(), "google.com".into(), "apple.com".into()],
-        }
+        "uid123", "a@b.c", "Ada", "password,google.com,apple.com", "https://ex/p.png",
+        sample_user(
+            "uid123",
+            "a@b.c",
+            "Ada",
+            &["password", "google.com", "apple.com"],
+            "https://ex/p.png"
+        )
     )]
     fn test_user_from_host_fields(
         #[case] uid: &str,
         #[case] email: &str,
         #[case] display_name: &str,
         #[case] provider_ids: &str,
+        #[case] photo_url: &str,
         #[case] expected: User,
     ) {
         let user = User::from_host_fields(
@@ -118,6 +115,7 @@ mod tests {
             email.into(),
             display_name.into(),
             provider_ids.into(),
+            photo_url.into(),
         );
         assert_eq!(user, expected);
     }

@@ -19,7 +19,10 @@ mod error;
 mod host_protocol;
 mod init;
 mod native;
+mod profile_prefer;
 mod subscribe;
+#[cfg(test)]
+mod test_support;
 mod user;
 
 pub use auth::{
@@ -31,7 +34,9 @@ pub use auth::{
     sign_in_with_email,
     sign_in_with_google,
     sign_out,
+    unlink_provider,
     update_display_name,
+    update_photo_url,
     use_emulator,
     // Apple Sign-In blocked for now — re-enable when Console + OAuth are ready.
     // link_with_apple, sign_in_with_apple,
@@ -56,7 +61,9 @@ pub mod prelude {
         sign_in_with_google,
         sign_out,
         subscribe_auth_state,
+        unlink_provider,
         update_display_name,
+        update_photo_url,
         use_emulator,
         AuthStateSubscription,
         FirebaseError,
