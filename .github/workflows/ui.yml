@@ -83,7 +83,9 @@ jobs:
         with:
           api-level: 34
           arch: x86_64
-          target: google_apis
+          # AOSP ATD (no GMS): google_apis Chimera module reloads SIGKILL the demo mid-flow.
+          # Maestro only exercises email/password against the Auth emulator.
+          target: aosp_atd
           disable-animations: true
           # Each line runs as its own `sh -c`; keep every command on one line.
           script: |
