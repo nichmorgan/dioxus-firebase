@@ -81,6 +81,16 @@ h3 { margin: 0 0 12px; }
 .btn-info { background: #17a2b8; }
 .btn-muted { background: #6c757d; }
 .btn-danger { background: #dc3545; margin-top: 10px; }
+.btn:disabled {
+    opacity: 0.45;
+    cursor: not-allowed;
+}
+.tip {
+    margin: 0;
+    color: #8a1f1f;
+    font-size: 0.9rem;
+    line-height: 1.35;
+}
 input {
     padding: 8px;
     font-size: 1rem;
@@ -148,6 +158,21 @@ fn main() {
     launch(app);
 }
 
+/// Compile-time Auth emulator flag (`FIREBASE_USE_AUTH_EMULATOR`, else unset project id).
+fn using_auth_emulator() -> bool {
+    option_env!("FIREBASE_USE_AUTH_EMULATOR")
+        .map(|v| v == "1" || v.eq_ignore_ascii_case("true"))
+        .unwrap_or(option_env!("FIREBASE_PROJECT_ID").is_none())
+}
+
+fn provider_ids_joined(user: &User, sep: &str) -> String {
+    user.provider_data
+        .iter()
+        .map(|p| p.provider_id.as_str())
+        .collect::<Vec<_>>()
+        .join(sep)
+}
+
 /// Run a blocking Auth call off the UI thread, then apply the result on the Dioxus runtime.
 fn spawn_auth<T, F, A>(work: F, apply: A)
 where
@@ -179,9 +204,6 @@ fn app() -> Element {
         let api_key = option_env!("FIREBASE_API_KEY").unwrap_or("demo-api-key");
         let app_id = option_env!("FIREBASE_APP_ID").unwrap_or(DEMO_APP_ID);
         let project_id = option_env!("FIREBASE_PROJECT_ID").unwrap_or("demo-project");
-        let use_auth_emulator = option_env!("FIREBASE_USE_AUTH_EMULATOR")
-            .map(|v| v == "1" || v.eq_ignore_ascii_case("true"))
-            .unwrap_or(option_env!("FIREBASE_PROJECT_ID").is_none());
 
         let options = FirebaseOptions {
             api_key: api_key.into(),
@@ -195,15 +217,15 @@ fn app() -> Element {
                 .map(str::to_owned),
         };
 
-        match initialize(options) {
+        match initialize_app(options) {
             Ok(()) => {
-                if use_auth_emulator {
-                    let _ = use_emulator(auth_emulator_host(), 9099);
+                if using_auth_emulator() {
+                    let _ = use_auth_emulator(auth_emulator_host(), 9099);
                 }
 
                 let (tx, mut rx) = tokio::sync::mpsc::unbounded_channel::<Option<User>>();
 
-                match subscribe_auth_state(move |user| {
+                match auth_state_changes(move |user| {
                     let _ = tx.send(user);
                 }) {
                     Ok(sub) => {
@@ -251,9 +273,7 @@ fn app() -> Element {
     rsx! {
         style { {STYLES} }
 
-        div {
-            id: "auth-status",
-            class: "status",
+        div { id: "auth-status", class: "status",
             strong { "Status: " }
             "{status_message}"
         }
@@ -306,7 +326,6 @@ fn app() -> Element {
                 h1 { "Google" }
                 {google_body(auth_state, status_message, screen)}
             },
-            // Apple Sign-In blocked for now — re-enable when Console + OAuth are ready.
             // Screen::Apple => rsx! {
             //     button {
             //         class: "back",
@@ -357,7 +376,7 @@ fn email_body(
                         let email = email.read().clone();
                         let password = password.read().clone();
                         spawn_auth(
-                            move || sign_in_with_email(email, password),
+                            move || sign_in_with_email_and_password(email, password),
                             move |result| match result {
                                 Ok(user) => {
                                     status_message.set(format!("Signed in user: {}", user.uid));
@@ -376,7 +395,7 @@ fn email_body(
                         let email = email.read().clone();
                         let password = password.read().clone();
                         spawn_auth(
-                            move || create_user_with_email(email, password),
+                            move || create_user_with_email_and_password(email, password),
                             move |result| match result {
                                 Ok(user) => {
                                     status_message.set(format!("Created user: {}", user.uid));
@@ -397,9 +416,7 @@ fn email_body(
                         move || send_password_reset_email(email),
                         move |result| match result {
                             Ok(()) => status_message.set("Password reset email sent.".into()),
-                            Err(err) => {
-                                status_message.set(format!("Password reset error: {err}"))
-                            }
+                            Err(err) => status_message.set(format!("Password reset error: {err}")),
                         },
                     );
                 },
@@ -409,52 +426,110 @@ fn email_body(
     }
 }
 
+/// Serve target that generates local `Dioxus.toml` from `.env` first.
+fn demo_serve_make_target() -> &'static str {
+    if cfg!(target_os = "ios") {
+        "make ios-demo"
+    } else {
+        "make android-demo"
+    }
+}
+
+/// Live Google needs a real web client ID and an Android package that matches
+/// the Firebase Android app (`ANDROID_APPLICATION_ID`; applied by `*-demo`).
+fn live_google_config_gap() -> Option<String> {
+    let serve = demo_serve_make_target();
+    if using_auth_emulator() {
+        return Some(format!(
+            "Blocked: live Google needs FIREBASE_USE_AUTH_EMULATOR=0, FIREBASE_GOOGLE_WEB_CLIENT_ID, and ANDROID_APPLICATION_ID in .env, then `{serve}`."
+        ));
+    }
+    let has_web = option_env!("FIREBASE_GOOGLE_WEB_CLIENT_ID")
+        .filter(|id| !id.is_empty())
+        .is_some();
+    if !has_web {
+        return Some(format!(
+            "Blocked: FIREBASE_GOOGLE_WEB_CLIENT_ID is required. Set it in .env, then `{serve}`."
+        ));
+    }
+    let has_android_id = option_env!("ANDROID_APPLICATION_ID")
+        .filter(|id| !id.is_empty())
+        .is_some();
+    if !has_android_id {
+        return Some(format!(
+            "Blocked: ANDROID_APPLICATION_ID is required for live Google. Set it in .env to your Firebase Android package, then `{serve}`."
+        ));
+    }
+    None
+}
+
 fn google_body(
     auth_state: Signal<AuthState>,
     mut status_message: Signal<String>,
     mut screen: Signal<Screen>,
 ) -> Element {
     let signed_in = matches!(auth_state(), AuthState::SignedIn(_));
+    let config_gap = live_google_config_gap();
+    let blocked = config_gap.is_some();
+    let blocked_title = config_gap.clone().unwrap_or_default();
+
+    use_effect({
+        let config_gap = config_gap.clone();
+        move || {
+            if let Some(msg) = config_gap.clone() {
+                status_message.set(msg);
+            }
+        }
+    });
+
     rsx! {
         div { class: "panel",
             button {
                 id: "sign-in-google",
                 class: "btn btn-google",
+                disabled: blocked,
+                title: "{blocked_title}",
                 onclick: move |_| {
                     spawn_auth(
                         sign_in_with_google,
                         move |result| match result {
                             Ok(user) => {
-                                status_message.set(format!(
-                                    "Signed in with Google: {} ({})",
-                                    user.uid,
-                                    user.provider_ids.join(",")
-                                ));
+                                status_message
+                                    .set(
+                                        format!(
+                                            "Signed in with Google: {} ({})",
+                                            user.uid,
+                                            provider_ids_joined(&user, ","),
+                                        ),
+                                    );
                                 screen.set(Screen::Account);
                             }
-                            Err(err) => {
-                                status_message.set(format!("Google sign-in error: {err}"))
-                            }
+                            Err(err) => status_message.set(format!("Google sign-in error: {err}")),
                         },
                     );
                 },
                 "Sign in with Google"
             }
+            if let Some(msg) = config_gap.as_ref() {
+                p { id: "google-config-hint", class: "tip", "{msg}" }
+            }
             if signed_in {
                 button {
                     id: "link-google",
                     class: "btn btn-google",
+                    disabled: blocked,
+                    title: "{blocked_title}",
                     onclick: move |_| {
                         spawn_auth(
                             link_with_google,
                             move |result| match result {
-                                Ok(user) => status_message.set(format!(
-                                    "Linked Google: {}",
-                                    user.provider_ids.join(",")
-                                )),
-                                Err(err) => {
-                                    status_message.set(format!("Link Google error: {err}"))
+                                Ok(user) => {
+                                    status_message
+                                        .set(
+                                            format!("Linked Google: {}", provider_ids_joined(&user, ",")),
+                                        )
                                 }
+                                Err(err) => status_message.set(format!("Link Google error: {err}")),
                             },
                         );
                     },
@@ -485,7 +560,7 @@ fn google_body(
 //                                 status_message.set(format!(
 //                                     "Signed in with Apple: {} ({})",
 //                                     user.uid,
-//                                     user.provider_ids.join(",")
+//                                     provider_ids_joined(&user, ",")
 //                                 ));
 //                                 screen.set(Screen::Account);
 //                             }
@@ -507,7 +582,7 @@ fn google_body(
 //                             move |result| match result {
 //                                 Ok(user) => status_message.set(format!(
 //                                     "Linked Apple: {}",
-//                                     user.provider_ids.join(",")
+//                                     provider_ids_joined(&user, ",")
 //                                 )),
 //                                 Err(err) => {
 //                                     status_message.set(format!("Link Apple error: {err}"))
@@ -539,7 +614,7 @@ fn account_body(
             let email = user.email.clone().unwrap_or_else(|| "N/A".into());
             let name = user.display_name.clone().unwrap_or_else(|| "N/A".into());
             let photo = user.photo_url.clone().unwrap_or_else(|| "N/A".into());
-            let providers = user.provider_ids.join(", ");
+            let providers = provider_ids_joined(user, ", ");
             rsx! {
                 div { class: "panel",
                     p {
@@ -595,21 +670,20 @@ fn account_body(
                         class: "btn btn-muted",
                         onclick: move |_| {
                             spawn_auth(
-                                move || id_token(true),
+                                move || get_id_token(true),
                                 move |result| match result {
                                     Ok(Some(token)) => {
-                                        status_message.set(format!(
-                                            "ID Token (len {}): {}...",
-                                            token.len(),
-                                            &token[..token.len().min(15)],
-                                        ))
+                                        status_message
+                                            .set(
+                                                format!(
+                                                    "ID Token (len {}): {}...",
+                                                    token.len(),
+                                                    &token[..token.len().min(15)],
+                                                ),
+                                            )
                                     }
-                                    Ok(None) => {
-                                        status_message.set("No ID Token returned.".into())
-                                    }
-                                    Err(err) => {
-                                        status_message.set(format!("Fetch token error: {err}"))
-                                    }
+                                    Ok(None) => status_message.set("No ID Token returned.".into()),
+                                    Err(err) => status_message.set(format!("Fetch token error: {err}")),
                                 },
                             );
                         },
@@ -620,11 +694,14 @@ fn account_body(
                         id: "sign-out",
                         class: "btn btn-danger",
                         onclick: move |_| {
-                            spawn_auth(sign_out, move |result| {
-                                if let Err(err) = result {
-                                    status_message.set(format!("Sign out error: {err}"));
-                                }
-                            });
+                            spawn_auth(
+                                sign_out,
+                                move |result| {
+                                    if let Err(err) = result {
+                                        status_message.set(format!("Sign out error: {err}"));
+                                    }
+                                },
+                            );
                         },
                         "Sign Out"
                     }

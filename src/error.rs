@@ -12,11 +12,11 @@ pub enum FirebaseError {
     #[error("invalid Firebase config: {0}")]
     InvalidConfig(String),
 
-    /// [`crate::initialize`] was already called successfully.
+    /// [`crate::initialize_app`] was already called successfully.
     #[error("Firebase is already initialized")]
     AlreadyInitialized,
 
-    /// A primitive was called before [`crate::initialize`].
+    /// A primitive was called before [`crate::initialize_app`].
     #[error("Firebase has not been initialized")]
     NotInitialized,
 
@@ -28,12 +28,12 @@ pub enum FirebaseError {
     #[error("native Firebase host missing: {0}")]
     HostMissing(String),
 
-    /// Firebase Auth failure with a stable wire `code`.
+    /// Firebase Auth failure with a stable wire `code` (`FirebaseAuthException`).
     ///
     /// Codes follow the Firebase Auth client convention
     /// (`invalid-credential`, `email-already-in-use`, `weak-password`, …).
     #[error("Firebase Auth error [{code}]: {message}")]
-    Auth { code: String, message: String },
+    AuthException { code: String, message: String },
 
     /// Exception / error forwarded from the native host outside Auth codes.
     #[error("native Firebase error: {message}")]
@@ -61,7 +61,7 @@ mod tests {
         "native Firebase host missing: DioxusFirebaseAuthHost not found"
     )]
     #[case(
-        FirebaseError::Auth {
+        FirebaseError::AuthException {
             code: "invalid-credential".into(),
             message: "The email address is badly formatted.".into(),
         },
@@ -79,7 +79,7 @@ mod tests {
 
     #[test]
     fn test_error_clone_and_equality() {
-        let err1 = FirebaseError::Auth {
+        let err1 = FirebaseError::AuthException {
             code: "invalid-credential".into(),
             message: "msg".into(),
         };

@@ -24,7 +24,7 @@ fn test_android_firebase_auth_emulator_lifecycle(
     emulator_endpoint: (String, u16),
 ) -> Result<(), FirebaseError> {
     // 1. Initialize
-    match initialize(demo_options) {
+    match initialize_app(demo_options) {
         Err(FirebaseError::HostMissing(msg)) => {
             eprintln!("Skipping live Android JNI E2E execution in raw CLI mode ({msg}).");
             return Ok(());
@@ -35,41 +35,50 @@ fn test_android_firebase_auth_emulator_lifecycle(
 
     // 2. Connect to Local Emulator
     let (host, port) = emulator_endpoint;
-    use_emulator(&host, port)?;
+    use_auth_emulator(&host, port)?;
 
     // 3. Subscribe to Auth State Changes
     let (tx, rx) = mpsc::channel();
-    let _sub = subscribe_auth_state(move |user| {
+    let _sub = auth_state_changes(move |user| {
         let _ = tx.send(user);
     })?;
 
     // 4. Create User with Email and Password
     let password = "TestPassword123!";
-    let created = create_user_with_email(&unique_email, password)?;
+    let created = create_user_with_email_and_password(&unique_email, password)?;
     assert_eq!(created.email.as_deref(), Some(unique_email.as_str()));
     assert!(
-        created.provider_ids.iter().any(|p| p == "password"),
+        created
+            .provider_data
+            .iter()
+            .any(|p| p.provider_id == "password"),
         "email user should list password provider: {:?}",
-        created.provider_ids
+        created.provider_data
     );
 
     // Verify Callback
     if let Ok(Some(state_user)) = rx.recv_timeout(Duration::from_secs(5)) {
         assert_eq!(state_user.uid, created.uid);
-        assert!(state_user.provider_ids.iter().any(|p| p == "password"));
+        assert!(state_user
+            .provider_data
+            .iter()
+            .any(|p| p.provider_id == "password"));
     }
 
     // 5. Query User & Update Profile
     let active = current_user()?.expect("should have active user");
     assert_eq!(active.uid, created.uid);
-    assert!(active.provider_ids.iter().any(|p| p == "password"));
+    assert!(active
+        .provider_data
+        .iter()
+        .any(|p| p.provider_id == "password"));
 
     update_display_name("Android E2E User")?;
     let updated = current_user()?.expect("should have updated user");
     assert_eq!(updated.display_name.as_deref(), Some("Android E2E User"));
 
     // 6. Token & Reset
-    let token = id_token(true)?.expect("token required");
+    let token = get_id_token(true)?.expect("token required");
     assert!(!token.is_empty());
     send_password_reset_email(&unique_email)?;
 
@@ -77,9 +86,12 @@ fn test_android_firebase_auth_emulator_lifecycle(
     sign_out()?;
     assert!(current_user()?.is_none());
 
-    let signed_in = sign_in_with_email(&unique_email, password)?;
+    let signed_in = sign_in_with_email_and_password(&unique_email, password)?;
     assert_eq!(signed_in.uid, created.uid);
-    assert!(signed_in.provider_ids.iter().any(|p| p == "password"));
+    assert!(signed_in
+        .provider_data
+        .iter()
+        .any(|p| p.provider_id == "password"));
 
     sign_out()?;
     Ok(())

@@ -5,7 +5,6 @@ edition = "2021"
 description = "Unofficial Firebase Auth primitives for Dioxus mobile"
 license = "MIT OR Apache-2.0"
 readme = "./README.md"
-homepage = "https://github.com/nichmorgan/dioxus-firebase"
 repository = "https://github.com/nichmorgan/dioxus-firebase"
 keywords = ["dioxus", "firebase", "auth", "mobile"]
 categories = ["gui"]
@@ -14,7 +13,7 @@ include = [
     "/ios",
     "/android",
     "/examples",
-    "/Dioxus.toml",
+    "/docs",
     "/README.md",
     "/LICENSE-MIT",
     "/LICENSE-APACHE",
@@ -54,3 +53,8 @@ libc = "0.2"
 unexpected_cfgs = { level = "warn", check-cfg = [
     'cfg(feature, values("cargo-clippy"))',
 ] }
+
+[lints.cargo]
+# Template keeps dioxus-lib declared for future hooks (same as dioxus-library-template).
+# Cargo 1.100 has no per-dep ignore for unused_dependencies — only allow/warn/deny.
+unused_dependencies = "allow"

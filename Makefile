@@ -12,11 +12,20 @@ if [ -n "$$pids" ]; then \
 fi
 endef
 
-.PHONY: emulator maestro sync-bundle-id
+.PHONY: emulator maestro sync-bundle-id android-demo ios-demo
 
-# Apply ANDROID_APPLICATION_ID from .env to Dioxus.toml (default com.example.demo).
+# Generate gitignored Dioxus.toml from Dioxus.toml.example + ANDROID_APPLICATION_ID
+# (default com.example.demo). Node is already required for npx (firebase-tools).
 sync-bundle-id:
-	@./scripts/sync-bundle-id.sh
+	@node scripts/sync-bundle-id.js
+
+# Sync package from .env into local Dioxus.toml, then serve the demo
+# (live Google needs ANDROID_APPLICATION_ID set).
+android-demo: sync-bundle-id
+	dx serve --example demo --platform android
+
+ios-demo: sync-bundle-id
+	dx serve --example demo --platform ios
 
 emulator:
 	@$(stop_auth_emulator)

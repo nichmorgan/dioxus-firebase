@@ -7,7 +7,7 @@ use rstest::rstest;
 
 #[rstest]
 fn test_desktop_returns_unsupported_platform(demo_options: FirebaseOptions) {
-    let err = initialize(demo_options).expect_err("desktop must fail with UnsupportedPlatform");
+    let err = initialize_app(demo_options).expect_err("desktop must fail with UnsupportedPlatform");
     assert_eq!(err, FirebaseError::UnsupportedPlatform);
 }
 
@@ -20,19 +20,19 @@ enum Primitive {
     // SignInWithApple,
     LinkWithGoogle,
     // LinkWithApple,
-    UnlinkProvider,
+    Unlink,
     UpdatePhotoUrl,
 }
 
 fn call_primitive(which: Primitive) -> Result<(), FirebaseError> {
     match which {
-        Primitive::SignInWithEmail => sign_in_with_email("a@b.c", "pass").map(|_| ()),
+        Primitive::SignInWithEmail => sign_in_with_email_and_password("a@b.c", "pass").map(|_| ()),
         Primitive::CurrentUser => current_user().map(|_| ()),
         Primitive::SignInWithGoogle => sign_in_with_google().map(|_| ()),
         // Primitive::SignInWithApple => sign_in_with_apple().map(|_| ()),
         Primitive::LinkWithGoogle => link_with_google().map(|_| ()),
         // Primitive::LinkWithApple => link_with_apple().map(|_| ()),
-        Primitive::UnlinkProvider => unlink_provider("google.com").map(|_| ()),
+        Primitive::Unlink => unlink("google.com").map(|_| ()),
         Primitive::UpdatePhotoUrl => update_photo_url("https://ex/p.png"),
     }
 }
@@ -44,7 +44,7 @@ fn call_primitive(which: Primitive) -> Result<(), FirebaseError> {
 // #[case(Primitive::SignInWithApple)]
 #[case(Primitive::LinkWithGoogle)]
 // #[case(Primitive::LinkWithApple)]
-#[case(Primitive::UnlinkProvider)]
+#[case(Primitive::Unlink)]
 #[case(Primitive::UpdatePhotoUrl)]
 fn test_primitives_require_init_on_desktop(#[case] which: Primitive) {
     assert_eq!(

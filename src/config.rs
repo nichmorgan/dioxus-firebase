@@ -7,26 +7,34 @@ use crate::error::FirebaseError;
 
 /// Firebase project options supplied by the host app.
 ///
-/// Mirrors the fields commonly passed to `FirebaseOptions` / `FirebaseApp`
-/// initialization. Staging vs production selection belongs in the app
+/// Field names match official core `FirebaseOptions` (snake_case of camelCase).
+/// Staging vs production selection belongs in the app
 /// (for example via `cfg!(debug_assertions)`).
+///
+/// [`Self::google_web_client_id`] is a **crate extension** for Google Sign-In /
+/// Credential Manager (`serverClientId`) — it is not part of core
+/// `FirebaseOptions`.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct FirebaseOptions {
     /// Web API key (`apiKey`).
     pub api_key: String,
     /// Mobile / web app id (`appId` / `google_app_id`).
     pub app_id: String,
-    /// GCP / Firebase project id.
+    /// GCP / Firebase project id (`projectId`).
     pub project_id: String,
-    /// Optional GCM / FCM sender id.
+    /// Optional GCM / FCM sender id (`messagingSenderId`).
+    ///
+    /// Required in some official SDKs; kept `Option` here so email-emulator
+    /// demos can omit it. When present, a non-empty value is forwarded as-is.
     pub messaging_sender_id: Option<String>,
-    /// Optional Cloud Storage bucket.
+    /// Optional Cloud Storage bucket (`storageBucket`).
     pub storage_bucket: Option<String>,
-    /// Optional Realtime Database URL.
+    /// Optional Realtime Database URL (`databaseURL`).
     pub database_url: Option<String>,
     /// OAuth **web** client ID for Google Sign-In (Android Credential Manager
-    /// `serverClientId` / iOS `GIDConfiguration`). Required for Google APIs;
-    /// email-only apps may leave this `None`.
+    /// `serverClientId` / iOS `GIDConfiguration`). **Not** a core
+    /// `FirebaseOptions` field — crate extension for Google APIs. Required for
+    /// Google sign-in / link; email-only apps may leave this `None`.
     pub google_web_client_id: Option<String>,
 }
 
@@ -46,6 +54,13 @@ impl FirebaseOptions {
             return Err(FirebaseError::InvalidConfig(
                 "project_id must not be empty".into(),
             ));
+        }
+        if let Some(sender) = &self.messaging_sender_id {
+            if sender.trim().is_empty() {
+                return Err(FirebaseError::InvalidConfig(
+                    "messaging_sender_id must not be empty when set".into(),
+                ));
+            }
         }
         Ok(())
     }
@@ -87,6 +102,18 @@ mod tests {
         valid_options.google_web_client_id =
             Some("123456789-abcdef.apps.googleusercontent.com".into());
         assert_eq!(valid_options.validate(), Ok(()));
+    }
+
+    #[rstest]
+    fn test_empty_messaging_sender_id_when_set_fails(mut valid_options: FirebaseOptions) {
+        valid_options.messaging_sender_id = Some("  ".into());
+        let err = valid_options.validate().unwrap_err();
+        match err {
+            FirebaseError::InvalidConfig(msg) => {
+                assert!(msg.contains("messaging_sender_id must not be empty when set"));
+            }
+            _ => panic!("expected InvalidConfig, got {err:?}"),
+        }
     }
 
     #[rstest]

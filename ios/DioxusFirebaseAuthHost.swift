@@ -14,13 +14,13 @@ import GoogleSignIn
 ///
 /// Reply protocol (matches Rust `host_protocol`):
 /// - success void: `OK`
-/// - success user: `OK\u{1f}uid\u{1f}email\u{1f}displayName\u{1f}providerIds[\u{1f}photoURL]`
+/// - success user: `OK\u{1f}uid\u{1f}email\u{1f}displayName\u{1f}photoURL\u{1f}N`
+///   then N times `providerId\u{1f}uid\u{1f}email\u{1f}displayName\u{1f}photoURL`
 /// - success optional string: `OK` or `OK\u{1f}value`
 /// - error: `ERR\u{1f}<code>\u{1f}<message>` with Firebase Auth wire codes
 ///
-/// `providerIds` is comma-separated (e.g. `password,google.com`). Wire email/photo
-/// prefer Google then Apple `UserInfo`; displayName prefers top-level then Google
-/// then Apple (keep in sync with Rust `prefer_profile_fields`).
+/// Top-level fields are Firebase user values as-is. Every `providerData` row is
+/// serialized (including `firebase` when present). No Google/Apple merge.
 @objc(DioxusFirebaseAuthHost)
 public class DioxusFirebaseAuthHost: NSObject {
     private static let unit: Character = "\u{1f}"
@@ -38,8 +38,8 @@ public class DioxusFirebaseAuthHost: NSObject {
     private static var auth: Auth { Auth.auth() }
 
     /// Initialize default `FirebaseApp` when missing, using app-supplied options.
-    @objc(initializeWithApiKey:appId:projectId:messagingSenderId:storageBucket:databaseURL:googleWebClientId:)
-    public static func initialize(
+    @objc(initializeAppWithApiKey:appId:projectId:messagingSenderId:storageBucket:databaseURL:googleWebClientId:)
+    public static func initializeApp(
         apiKey: String,
         appId: String,
         projectId: String,
@@ -87,8 +87,8 @@ public class DioxusFirebaseAuthHost: NSObject {
         }
     }
 
-    @objc(signInWithEmail:password:)
-    public static func signIn(email: String, password: String) -> String {
+    @objc(signInWithEmailAndPassword:password:)
+    public static func signInWithEmailAndPassword(email: String, password: String) -> String {
         return awaitAuth { completion in
             auth.signIn(withEmail: email.trimmingCharacters(in: .whitespacesAndNewlines),
                         password: password,
@@ -96,8 +96,8 @@ public class DioxusFirebaseAuthHost: NSObject {
         }
     }
 
-    @objc(createUserWithEmail:password:)
-    public static func createUser(email: String, password: String) -> String {
+    @objc(createUserWithEmailAndPassword:password:)
+    public static func createUserWithEmailAndPassword(email: String, password: String) -> String {
         return awaitAuth { completion in
             auth.createUser(withEmail: email.trimmingCharacters(in: .whitespacesAndNewlines),
                             password: password,
@@ -110,9 +110,9 @@ public class DioxusFirebaseAuthHost: NSObject {
         updateProfile(displayName: displayName, photoURL: nil)
     }
 
-    @objc(updatePhotoUrl:)
-    public static func updatePhotoUrl(_ photoUrl: String) -> String {
-        updateProfile(displayName: nil, photoURL: photoUrl)
+    @objc(updatePhotoURL:)
+    public static func updatePhotoURL(_ photoURL: String) -> String {
+        updateProfile(displayName: nil, photoURL: photoURL)
     }
 
     @objc(sendPasswordResetEmail:)
@@ -140,8 +140,8 @@ public class DioxusFirebaseAuthHost: NSObject {
         return okUser(auth.currentUser)
     }
 
-    @objc(idTokenWithForceRefresh:)
-    public static func idToken(forceRefresh: Bool) -> String {
+    @objc(getIdTokenWithForceRefresh:)
+    public static func getIdToken(forceRefresh: Bool) -> String {
         guard let user = auth.currentUser else {
             return ok()
         }
@@ -158,16 +158,16 @@ public class DioxusFirebaseAuthHost: NSObject {
         }
     }
 
-    @objc(useEmulatorWithHost:port:)
-    public static func useEmulator(host: String, port: UInt32) -> String {
+    @objc(useAuthEmulatorWithHost:port:)
+    public static func useAuthEmulator(host: String, port: UInt32) -> String {
         auth.useEmulator(withHost: host.trimmingCharacters(in: .whitespacesAndNewlines),
                          port: Int(port))
         return ok()
     }
 
     /// `callback` is a function pointer to `dioxus_firebase_auth_state_changed`.
-    @objc(subscribeAuthStateWithCallback:)
-    public static func subscribeAuthState(callback: UnsafeRawPointer) -> String {
+    @objc(authStateChangesWithCallback:)
+    public static func authStateChanges(callback: UnsafeRawPointer) -> String {
         let fn = unsafeBitCast(callback, to: (@convention(c) (UnsafePointer<CChar>?) -> Void).self)
         let alreadySubscribed: Bool
         subscribeLock.lock()
@@ -209,8 +209,8 @@ public class DioxusFirebaseAuthHost: NSObject {
     }
 
     /// Unlink a provider id (e.g. `google.com`). Prefer unlink then link to change store identity.
-    @objc(unlinkProvider:)
-    public static func unlinkProvider(_ providerId: String) -> String {
+    @objc(unlink:)
+    public static func unlink(_ providerId: String) -> String {
         guard let user = auth.currentUser else {
             return err("requires-recent-login", "no current user")
         }
@@ -421,37 +421,24 @@ public class DioxusFirebaseAuthHost: NSObject {
 
     private static func ok() -> String { "OK" }
 
-    /// Keep preference rules in sync with Rust `prefer_profile_fields`.
+    /// Top-level Firebase fields + every `providerData` row (no preference merge).
     private static func userFields(_ user: User) -> String {
-        var seen = Set<String>()
-        var providers: [String] = []
-        var google: UserInfo?
-        var apple: UserInfo?
-        for info in user.providerData {
-            let id = info.providerID
-            if !id.isEmpty && id != "firebase" && seen.insert(id).inserted {
-                providers.append(id)
-            }
-            if id == "google.com" { google = info }
-            if id == "apple.com" { apple = info }
+        let providerData = user.providerData
+        var parts: [String] = [
+            user.uid,
+            user.email ?? "",
+            user.displayName ?? "",
+            user.photoURL?.absoluteString ?? "",
+            String(providerData.count),
+        ]
+        for info in providerData {
+            parts.append(info.providerID)
+            parts.append(info.uid ?? "")
+            parts.append(info.email ?? "")
+            parts.append(info.displayName ?? "")
+            parts.append(info.photoURL?.absoluteString ?? "")
         }
-        let email = pickNonBlank(google?.email, apple?.email, user.email)
-        let name = pickNonBlank(user.displayName, google?.displayName, apple?.displayName)
-        let photo = pickNonBlank(
-            google?.photoURL?.absoluteString,
-            apple?.photoURL?.absoluteString,
-            user.photoURL?.absoluteString
-        )
-        let providerIds = providers.joined(separator: ",")
-        return "\(user.uid)\(unit)\(email)\(unit)\(name)\(unit)\(providerIds)\(unit)\(photo)"
-    }
-
-    private static func pickNonBlank(_ candidates: String?...) -> String {
-        for c in candidates {
-            let t = (c ?? "").trimmingCharacters(in: .whitespacesAndNewlines)
-            if !t.isEmpty { return t }
-        }
-        return ""
+        return parts.joined(separator: String(unit))
     }
 
     private static func updateProfile(displayName: String?, photoURL: String?) -> String {

@@ -6,7 +6,7 @@
 #![allow(dead_code)] // used from android/ios native modules
 
 use crate::error::FirebaseError;
-use crate::user::User;
+use crate::user::{nonempty, User, UserInfo};
 
 pub(crate) const UNIT: char = '\u{1f}';
 
@@ -42,28 +42,50 @@ pub(crate) fn parse_user(reply: &str) -> Result<User, FirebaseError> {
     }
 }
 
-/// Parse `uid\x1femail\x1fdisplayName[\x1fproviderIds[\x1fphotoURL]]`.
+/// Parse
+/// `uid\x1femail\x1fdisplayName\x1fphotoURL\x1fN` then N×
+/// `providerId\x1fuid\x1femail\x1fdisplayName\x1fphotoURL`.
 ///
-/// `providerIds` is comma-separated (e.g. `password,google.com`). Missing 4th
-/// field yields an empty `provider_ids` list. Missing 5th yields `photo_url = None`.
+/// Top-level fields are Firebase user values as-is (empty → `None`). Every
+/// `providerData` row is included (including `firebase` when present).
 pub(crate) fn parse_user_fields(fields: &str) -> Result<User, FirebaseError> {
     let mut parts = fields.split(UNIT);
     let uid = parts.next().unwrap_or_default().to_string();
     let email = parts.next().unwrap_or_default().to_string();
     let display_name = parts.next().unwrap_or_default().to_string();
-    let provider_ids = parts.next().unwrap_or_default().to_string();
     let photo_url = parts.next().unwrap_or_default().to_string();
+    let n_raw = parts.next().unwrap_or("0");
+    let n: usize = n_raw.parse().map_err(|_| FirebaseError::Native {
+        message: format!("invalid provider count in host reply: {n_raw}"),
+    })?;
     if uid.trim().is_empty() {
         return Err(FirebaseError::Native {
             message: "user uid missing in host reply".into(),
         });
     }
+
+    let mut provider_data = Vec::with_capacity(n);
+    for _ in 0..n {
+        let provider_id = parts.next().unwrap_or_default().to_string();
+        let p_uid = parts.next().unwrap_or_default().to_string();
+        let p_email = parts.next().unwrap_or_default().to_string();
+        let p_name = parts.next().unwrap_or_default().to_string();
+        let p_photo = parts.next().unwrap_or_default().to_string();
+        provider_data.push(UserInfo {
+            provider_id,
+            uid: nonempty(p_uid),
+            email: nonempty(p_email),
+            display_name: nonempty(p_name),
+            photo_url: nonempty(p_photo),
+        });
+    }
+
     Ok(User::from_host_fields(
         uid,
         email,
         display_name,
-        provider_ids,
         photo_url,
+        provider_data,
     ))
 }
 
@@ -98,7 +120,7 @@ fn parse_err(reply: &str) -> FirebaseError {
                 },
             };
         }
-        return FirebaseError::Auth { code, message };
+        return FirebaseError::AuthException { code, message };
     }
     FirebaseError::Native {
         message: reply.to_string(),
@@ -128,70 +150,155 @@ pub(crate) fn require_email(email: &str) -> Result<(), FirebaseError> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::profile_prefer::{
-        prefer_profile_fields, MockProvider, MockTopLevel, PROVIDER_GOOGLE,
-    };
-    use crate::test_support::{err_reply, ok_user_reply, sample_user, user_wire};
+    use crate::test_support::{err_reply, ok_user_reply, sample_provider, sample_user, user_wire};
     use rstest::rstest;
 
     #[rstest]
-    #[case("OK", Ok(None))]
-    #[case("OK\0", Ok(None))]
-    #[case("OK\x1fuid1\x1fa@b.c\x1fAda", Ok(Some(sample_user("uid1", "a@b.c", "Ada", &[], ""))))]
-    #[case("OK\x1fuid1\x1f\x1f", Ok(Some(sample_user("uid1", "", "", &[], ""))))]
+    #[case("OK".to_string(), Ok(None))]
+    #[case("OK\0".to_string(), Ok(None))]
     #[case(
-        "OK\x1fuid1\x1fa@b.c\x1fAda\x1fpassword,google.com",
-        Ok(Some(sample_user(
+        ok_user_reply("uid1", "a@b.c", "Ada", "", &[]),
+        Ok(Some(sample_user("uid1", Some("a@b.c"), Some("Ada"), None, vec![])))
+    )]
+    #[case(
+        ok_user_reply("uid1", "", "", "", &[]),
+        Ok(Some(sample_user("uid1", None, None, None, vec![])))
+    )]
+    #[case(
+        ok_user_reply(
             "uid1",
             "a@b.c",
             "Ada",
-            &["password", "google.com"],
-            ""
-        )))
-    )]
-    #[case(
-        "OK\x1fuid1\x1f\x1f\x1fapple.com",
-        Ok(Some(sample_user("uid1", "", "", &["apple.com"], "")))
-    )]
-    #[case(
-        "OK\x1fuid1\x1fa@b.c\x1fAda\x1f",
-        Ok(Some(sample_user("uid1", "a@b.c", "Ada", &[], "")))
-    )]
-    #[case(
-        "OK\x1fuid1\x1fg@ex.com\x1fAda\x1fpassword,google.com\x1fhttps://g/p.png",
+            "",
+            &[("password", "uid1", "a@b.c", "Ada", "")],
+        ),
         Ok(Some(sample_user(
             "uid1",
-            "g@ex.com",
-            "Ada",
-            &["password", "google.com"],
-            "https://g/p.png"
+            Some("a@b.c"),
+            Some("Ada"),
+            None,
+            vec![sample_provider(
+                "password",
+                Some("uid1"),
+                Some("a@b.c"),
+                Some("Ada"),
+                None,
+            )],
         )))
     )]
     #[case(
-        "OK\x1fuid1\x1fa@b.c\x1fAda\x1fpassword\x1f",
-        Ok(Some(sample_user("uid1", "a@b.c", "Ada", &["password"], "")))
+        ok_user_reply(
+            "uid1",
+            "pw@ex.com",
+            "App",
+            "",
+            &[
+                ("password", "uid1", "pw@ex.com", "Pw", ""),
+                ("google.com", "g-uid", "g@ex.com", "Google", "https://g/p.png"),
+            ],
+        ),
+        Ok(Some(sample_user(
+            "uid1",
+            Some("pw@ex.com"),
+            Some("App"),
+            None,
+            vec![
+                sample_provider(
+                    "password",
+                    Some("uid1"),
+                    Some("pw@ex.com"),
+                    Some("Pw"),
+                    None,
+                ),
+                sample_provider(
+                    "google.com",
+                    Some("g-uid"),
+                    Some("g@ex.com"),
+                    Some("Google"),
+                    Some("https://g/p.png"),
+                ),
+            ],
+        )))
+    )]
+    #[case(
+        ok_user_reply(
+            "uid1",
+            "a@b.c",
+            "Ada",
+            "https://ex/p.png",
+            &[("password", "uid1", "a@b.c", "Ada", "")],
+        ),
+        Ok(Some(sample_user(
+            "uid1",
+            Some("a@b.c"),
+            Some("Ada"),
+            Some("https://ex/p.png"),
+            vec![sample_provider(
+                "password",
+                Some("uid1"),
+                Some("a@b.c"),
+                Some("Ada"),
+                None,
+            )],
+        )))
     )]
     fn test_parse_optional_user(
-        #[case] input: &str,
+        #[case] input: String,
         #[case] expected: Result<Option<User>, FirebaseError>,
     ) {
-        assert_eq!(parse_optional_user(input), expected);
+        assert_eq!(parse_optional_user(&input), expected);
     }
 
     #[rstest]
     #[case(
-        "OK\x1fuid1\x1fa@b.c\x1fAda\x1fpassword,apple.com",
-        sample_user("uid1", "a@b.c", "Ada", &["password", "apple.com"], "")
+        ok_user_reply(
+            "uid1",
+            "a@b.c",
+            "Ada",
+            "",
+            &[
+                ("password", "uid1", "a@b.c", "Ada", ""),
+                ("apple.com", "a-uid", "a@privaterelay.appleid.com", "", ""),
+            ],
+        ),
+        sample_user(
+            "uid1",
+            Some("a@b.c"),
+            Some("Ada"),
+            None,
+            vec![
+                sample_provider(
+                    "password",
+                    Some("uid1"),
+                    Some("a@b.c"),
+                    Some("Ada"),
+                    None,
+                ),
+                sample_provider(
+                    "apple.com",
+                    Some("a-uid"),
+                    Some("a@privaterelay.appleid.com"),
+                    None,
+                    None,
+                ),
+            ],
+        )
     )]
-    fn test_parse_user_with_providers(#[case] input: &str, #[case] expected: User) {
-        assert_eq!(parse_user(input).unwrap(), expected);
+    fn test_parse_user_with_providers(#[case] input: String, #[case] expected: User) {
+        assert_eq!(parse_user(&input).unwrap(), expected);
     }
 
     #[rstest]
-    #[case("OK\x1f\x1f\x1f")]
-    #[case("OK\x1f   \x1fa@b.c\x1fAda")]
+    #[case("OK\x1f\x1f\x1f\x1f\x1f0")]
+    #[case("OK\x1f   \x1fa@b.c\x1fAda\x1f\x1f0")]
     fn test_parse_user_missing_uid(#[case] input: &str) {
         let err = parse_user(input).unwrap_err();
+        assert!(matches!(err, FirebaseError::Native { .. }));
+    }
+
+    #[test]
+    fn test_parse_user_invalid_provider_count() {
+        let err = parse_user("OK\x1fuid1\x1fa@b.c\x1fAda\x1f\x1fxx").unwrap_err();
         assert!(matches!(err, FirebaseError::Native { .. }));
     }
 
@@ -210,7 +317,7 @@ mod tests {
         let raw = err_reply(expected_code, expected_msg);
         let err = parse_void(&raw).unwrap_err();
         match err {
-            FirebaseError::Auth { code, message } => {
+            FirebaseError::AuthException { code, message } => {
                 assert_eq!(code, expected_code);
                 assert_eq!(message, expected_msg);
             }
@@ -223,64 +330,65 @@ mod tests {
     }
 
     #[test]
-    fn test_prefer_then_wire_roundtrip_google_linked() {
-        let top = MockTopLevel {
-            email: "pw@ex.com",
-            name: "App Name",
-            photo: "",
-        };
-        let providers = [
-            MockProvider {
-                id: "password",
-                email: "pw@ex.com",
-                name: "Pw",
-                photo: "",
-            },
-            MockProvider {
-                id: PROVIDER_GOOGLE,
-                email: "g@ex.com",
-                name: "Google Name",
-                photo: "https://g/p.png",
-            },
-        ];
-        let (email, name, photo) = prefer_profile_fields(top, &providers);
-        let wire = user_wire("uid1", &email, &name, "password,google.com", Some(&photo));
+    fn test_wire_roundtrip_top_level_only() {
+        let wire = user_wire("uid1", "a@b.c", "Ada", "", &[]);
         let user = parse_user_fields(&wire).unwrap();
-        assert_eq!(user.email.as_deref(), Some("g@ex.com"));
-        assert_eq!(user.display_name.as_deref(), Some("App Name"));
-        assert_eq!(user.photo_url.as_deref(), Some("https://g/p.png"));
+        assert_eq!(user.email.as_deref(), Some("a@b.c"));
+        assert_eq!(user.display_name.as_deref(), Some("Ada"));
+        assert_eq!(user.photo_url, None);
+        assert!(user.provider_data.is_empty());
         assert_eq!(
-            parse_optional_user(&ok_user_reply(
-                "uid1",
-                &email,
-                &name,
-                "password,google.com",
-                Some(&photo)
-            ))
-            .unwrap()
-            .unwrap(),
+            parse_optional_user(&ok_user_reply("uid1", "a@b.c", "Ada", "", &[]))
+                .unwrap()
+                .unwrap(),
             user
         );
     }
 
     #[test]
-    fn test_prefer_then_wire_roundtrip_apple_only() {
-        let top = MockTopLevel {
-            email: "",
-            name: "",
-            photo: "",
-        };
-        let providers = [MockProvider {
-            id: "apple.com",
-            email: "a@privaterelay.appleid.com",
-            name: "",
-            photo: "",
-        }];
-        let (email, name, photo) = prefer_profile_fields(top, &providers);
-        let wire = user_wire("uid2", &email, &name, "apple.com", Some(&photo));
+    fn test_wire_roundtrip_password_and_google_distinct() {
+        let providers = [
+            ("password", "uid1", "pw@ex.com", "Pw", ""),
+            (
+                "google.com",
+                "g-uid",
+                "g@ex.com",
+                "Google",
+                "https://g/p.png",
+            ),
+        ];
+        let wire = user_wire("uid1", "pw@ex.com", "App Name", "", &providers);
         let user = parse_user_fields(&wire).unwrap();
-        assert_eq!(user.email.as_deref(), Some("a@privaterelay.appleid.com"));
-        assert_eq!(user.display_name, None);
+        // Top-level stays as hosts sent it — no Google/Apple preference.
+        assert_eq!(user.email.as_deref(), Some("pw@ex.com"));
+        assert_eq!(user.display_name.as_deref(), Some("App Name"));
         assert_eq!(user.photo_url, None);
+        assert_eq!(user.provider_data.len(), 2);
+        assert_eq!(user.provider_data[0].provider_id, "password");
+        assert_eq!(user.provider_data[0].email.as_deref(), Some("pw@ex.com"));
+        assert_eq!(user.provider_data[1].provider_id, "google.com");
+        assert_eq!(user.provider_data[1].email.as_deref(), Some("g@ex.com"));
+        assert_eq!(
+            user.provider_data[1].photo_url.as_deref(),
+            Some("https://g/p.png")
+        );
+    }
+
+    #[test]
+    fn test_wire_roundtrip_empty_photo_and_n_zero() {
+        let wire = user_wire("uid2", "", "", "", &[]);
+        let user = parse_user_fields(&wire).unwrap();
+        assert_eq!(user.uid, "uid2");
+        assert_eq!(user.email, None);
+        assert_eq!(user.photo_url, None);
+        assert_eq!(user.provider_data, vec![]);
+    }
+
+    #[test]
+    fn test_wire_includes_firebase_provider_row() {
+        let providers = [("firebase", "uid1", "a@b.c", "", "")];
+        let user = parse_user_fields(&user_wire("uid1", "a@b.c", "", "", &providers)).unwrap();
+        assert_eq!(user.provider_data.len(), 1);
+        assert_eq!(user.provider_data[0].provider_id, "firebase");
     }
 }

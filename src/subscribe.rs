@@ -16,7 +16,7 @@ fn callback_slot() -> &'static Mutex<Option<AuthCallback>> {
     CALLBACK.get_or_init(|| Mutex::new(None))
 }
 
-/// Guard returned by [`subscribe_auth_state`]. Dropping clears the callback
+/// Guard returned by [`auth_state_changes`]. Dropping clears the callback
 /// (native listener may still fire until process exit — v1 keeps one global).
 #[derive(Debug)]
 pub struct AuthStateSubscription;
@@ -29,7 +29,7 @@ impl Drop for AuthStateSubscription {
     }
 }
 
-/// Subscribe to Firebase Auth state (restore / sign-in / sign-out).
+/// Subscribe to Firebase Auth state (`authStateChanges`).
 ///
 /// Only one subscriber is supported in v1. A second call replaces the previous
 /// callback. Keep the returned [`AuthStateSubscription`] alive for the app
@@ -42,13 +42,13 @@ impl Drop for AuthStateSubscription {
 ///
 /// ```rust,ignore
 /// use dioxus::prelude::*;
-/// use dioxus_firebase::{subscribe_auth_state, User};
+/// use dioxus_firebase::{auth_state_changes, User};
 ///
 /// enum AuthStatus { Restoring, Guest, Ready(User) }
 ///
 /// let mut status = use_signal(|| AuthStatus::Restoring);
 /// let (tx, mut rx) = futures_channel::mpsc::unbounded();
-/// let _sub = subscribe_auth_state(move |user| {
+/// let _sub = auth_state_changes(move |user| {
 ///     let _ = tx.unbounded_send(user);
 /// })?;
 /// spawn(async move {
@@ -62,8 +62,8 @@ impl Drop for AuthStateSubscription {
 /// ```
 ///
 /// The native SDK also restores the session — call this after
-/// [`crate::initialize`]; do not poll `current_user` for restore.
-pub fn subscribe_auth_state<F>(on_change: F) -> Result<AuthStateSubscription, FirebaseError>
+/// [`crate::initialize_app`]; do not poll `current_user` for restore.
+pub fn auth_state_changes<F>(on_change: F) -> Result<AuthStateSubscription, FirebaseError>
 where
     F: Fn(Option<User>) + Send + Sync + 'static,
 {
@@ -74,7 +74,7 @@ where
         })?;
         *guard = Some(Arc::new(on_change));
     }
-    native::subscribe_auth_state()?;
+    native::auth_state_changes()?;
     Ok(AuthStateSubscription)
 }
 
@@ -90,7 +90,7 @@ pub(crate) fn dispatch_auth_state(user: Option<User>) {
     }
 }
 
-/// Parse a host user payload (`uid\x1femail\x1fdisplayName` or empty = signed out).
+/// Parse a host user payload (new wire body or empty = signed out).
 #[allow(dead_code)] // called from android/ios native modules
 pub(crate) fn dispatch_auth_state_payload(payload: Option<&str>) {
     let user = payload.and_then(|raw| {
@@ -106,6 +106,7 @@ pub(crate) fn dispatch_auth_state_payload(payload: Option<&str>) {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::test_support::{sample_provider, sample_user, user_wire};
     use rstest::{fixture, rstest};
     use std::sync::atomic::{AtomicBool, Ordering};
     use std::sync::{Mutex, MutexGuard};
@@ -135,7 +136,7 @@ mod tests {
 
     #[rstest]
     fn test_subscribe_uninitialized_fails(_clear_callback: ClearCallbackGuard) {
-        let err = subscribe_auth_state(|_| {}).expect_err("must require init");
+        let err = auth_state_changes(|_| {}).expect_err("must require init");
         assert_eq!(err, FirebaseError::NotInitialized);
     }
 
@@ -155,48 +156,92 @@ mod tests {
             }));
         }
 
-        dispatch_auth_state(Some(User {
-            uid: "test_uid".into(),
-            email: Some("a@b.c".into()),
-            display_name: None,
-            provider_ids: vec!["password".into()],
-            photo_url: None,
-        }));
+        dispatch_auth_state(Some(sample_user(
+            "test_uid",
+            Some("a@b.c"),
+            None,
+            None,
+            vec![sample_provider(
+                "password",
+                Some("test_uid"),
+                Some("a@b.c"),
+                None,
+                None,
+            )],
+        )));
 
         assert!(invoked.load(Ordering::SeqCst));
     }
 
     #[rstest]
     #[case(None, None)]
-    #[case(Some(""), None)]
-    #[case(Some("\0"), None)]
-    #[case(Some("uid123\x1fuser@example.com\x1fJohn Doe"), Some(User {
-        uid: "uid123".into(),
-        email: Some("user@example.com".into()),
-        display_name: Some("John Doe".into()),
-        provider_ids: vec![],
-        photo_url: None,
-    }))]
-    #[case(Some("uid123\x1fa@b.c\x1fAda\x1fpassword,google.com"), Some(User {
-        uid: "uid123".into(),
-        email: Some("a@b.c".into()),
-        display_name: Some("Ada".into()),
-        provider_ids: vec!["password".into(), "google.com".into()],
-        photo_url: None,
-    }))]
-    #[case(Some("uid123\x1fg@ex.com\x1fAda\x1fgoogle.com\x1fhttps://g/p.png"), Some(User {
-        uid: "uid123".into(),
-        email: Some("g@ex.com".into()),
-        display_name: Some("Ada".into()),
-        provider_ids: vec!["google.com".into()],
-        photo_url: Some("https://g/p.png".into()),
-    }))]
+    #[case(Some(String::new()), None)]
+    #[case(Some("\0".into()), None)]
+    #[case(
+        Some(user_wire("uid123", "user@example.com", "John Doe", "", &[])),
+        Some(sample_user(
+            "uid123",
+            Some("user@example.com"),
+            Some("John Doe"),
+            None,
+            vec![],
+        ))
+    )]
+    #[case(
+        Some(user_wire(
+            "uid123",
+            "a@b.c",
+            "Ada",
+            "",
+            &[
+                ("password", "uid123", "a@b.c", "Ada", ""),
+                ("google.com", "g-uid", "g@ex.com", "G", ""),
+            ],
+        )),
+        Some(sample_user(
+            "uid123",
+            Some("a@b.c"),
+            Some("Ada"),
+            None,
+            vec![
+                sample_provider("password", Some("uid123"), Some("a@b.c"), Some("Ada"), None),
+                sample_provider("google.com", Some("g-uid"), Some("g@ex.com"), Some("G"), None),
+            ],
+        ))
+    )]
+    #[case(
+        Some(user_wire(
+            "uid123",
+            "g@ex.com",
+            "Ada",
+            "https://g/p.png",
+            &[("google.com", "g-uid", "g@ex.com", "Ada", "https://g/p.png")],
+        )),
+        Some(sample_user(
+            "uid123",
+            Some("g@ex.com"),
+            Some("Ada"),
+            Some("https://g/p.png"),
+            vec![sample_provider(
+                "google.com",
+                Some("g-uid"),
+                Some("g@ex.com"),
+                Some("Ada"),
+                Some("https://g/p.png"),
+            )],
+        ))
+    )]
     fn test_dispatch_auth_state_payload(
         _clear_callback: ClearCallbackGuard,
-        #[case] payload: Option<&str>,
+        #[case] payload: Option<String>,
         #[case] expected_user: Option<User>,
     ) {
-        let received_user = Arc::new(Mutex::new(None));
+        // Signed-out cases start from a stale user so we assert a real transition to None.
+        let received_user = Arc::new(Mutex::new(if expected_user.is_none() {
+            Some(sample_user("stale", None, None, None, vec![]))
+        } else {
+            None
+        }));
         let received_user_clone = received_user.clone();
 
         {
@@ -206,7 +251,7 @@ mod tests {
             }));
         }
 
-        dispatch_auth_state_payload(payload);
+        dispatch_auth_state_payload(payload.as_deref());
 
         let user = received_user.lock().unwrap().clone();
         assert_eq!(user, expected_user);

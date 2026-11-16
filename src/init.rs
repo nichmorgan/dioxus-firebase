@@ -8,6 +8,10 @@ use crate::native;
 
 static INITIALIZED: AtomicBool = AtomicBool::new(false);
 
+/// Whether the default Firebase app has been initialized via this crate.
+///
+/// Convenience helper (official SDKs expose `Firebase.apps` / `Firebase.app()`;
+/// this crate tracks a single default app only).
 pub fn is_initialized() -> bool {
     INITIALIZED.load(Ordering::Acquire)
 }
@@ -20,7 +24,8 @@ pub(crate) fn require_initialized() -> Result<(), FirebaseError> {
     }
 }
 
-/// Initialize Firebase App (if needed) and Auth once.
+/// Initialize the default Firebase App (if needed) and Auth once
+/// (`Firebase.initializeApp`).
 ///
 /// The app supplies [`FirebaseOptions`] — never hardcode keys in this crate.
 ///
@@ -33,7 +38,7 @@ pub(crate) fn require_initialized() -> Result<(), FirebaseError> {
 ///
 /// Call from `spawn_blocking` / a worker on mobile — the native host may hop
 /// to the main thread and block until Firebase finishes initializing.
-pub fn initialize(options: FirebaseOptions) -> Result<(), FirebaseError> {
+pub fn initialize_app(options: FirebaseOptions) -> Result<(), FirebaseError> {
     if INITIALIZED
         .compare_exchange(false, true, Ordering::AcqRel, Ordering::Acquire)
         .is_err()
@@ -43,7 +48,7 @@ pub fn initialize(options: FirebaseOptions) -> Result<(), FirebaseError> {
 
     let result = options
         .validate()
-        .and_then(|()| native::initialize(&options));
+        .and_then(|()| native::initialize_app(&options));
     if result.is_err() {
         INITIALIZED.store(false, Ordering::Release);
     }

@@ -32,16 +32,22 @@ macro_rules! native_call {
     }};
 }
 
-pub(crate) fn initialize(options: &FirebaseOptions) -> Result<(), FirebaseError> {
-    native_call!(initialize(options))
+pub(crate) fn initialize_app(options: &FirebaseOptions) -> Result<(), FirebaseError> {
+    native_call!(initialize_app(options))
 }
 
-pub(crate) fn sign_in_with_email(email: &str, password: &str) -> Result<User, FirebaseError> {
-    native_call!(sign_in_with_email(email, password))
+pub(crate) fn sign_in_with_email_and_password(
+    email: &str,
+    password: &str,
+) -> Result<User, FirebaseError> {
+    native_call!(sign_in_with_email_and_password(email, password))
 }
 
-pub(crate) fn create_user_with_email(email: &str, password: &str) -> Result<User, FirebaseError> {
-    native_call!(create_user_with_email(email, password))
+pub(crate) fn create_user_with_email_and_password(
+    email: &str,
+    password: &str,
+) -> Result<User, FirebaseError> {
+    native_call!(create_user_with_email_and_password(email, password))
 }
 
 pub(crate) fn update_display_name(display_name: &str) -> Result<(), FirebaseError> {
@@ -64,16 +70,16 @@ pub(crate) fn current_user() -> Result<Option<User>, FirebaseError> {
     native_call!(current_user())
 }
 
-pub(crate) fn id_token(force_refresh: bool) -> Result<Option<String>, FirebaseError> {
-    native_call!(id_token(force_refresh))
+pub(crate) fn get_id_token(force_refresh: bool) -> Result<Option<String>, FirebaseError> {
+    native_call!(get_id_token(force_refresh))
 }
 
-pub(crate) fn use_emulator(host: &str, port: u16) -> Result<(), FirebaseError> {
-    native_call!(use_emulator(host, port))
+pub(crate) fn use_auth_emulator(host: &str, port: u16) -> Result<(), FirebaseError> {
+    native_call!(use_auth_emulator(host, port))
 }
 
-pub(crate) fn subscribe_auth_state() -> Result<(), FirebaseError> {
-    native_call!(subscribe_auth_state())
+pub(crate) fn auth_state_changes() -> Result<(), FirebaseError> {
+    native_call!(auth_state_changes())
 }
 
 pub(crate) fn sign_in_with_google() -> Result<User, FirebaseError> {
@@ -84,8 +90,8 @@ pub(crate) fn link_with_google() -> Result<User, FirebaseError> {
     native_call!(link_with_google())
 }
 
-pub(crate) fn unlink_provider(provider_id: &str) -> Result<User, FirebaseError> {
-    native_call!(unlink_provider(provider_id))
+pub(crate) fn unlink(provider_id: &str) -> Result<User, FirebaseError> {
+    native_call!(unlink(provider_id))
 }
 
 // Apple Sign-In blocked for now — re-enable when Console + OAuth are ready.

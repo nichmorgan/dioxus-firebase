@@ -9,7 +9,7 @@ use crate::user::User;
 
 /// Blocks until the native Firebase Task completes — call from
 /// `spawn_blocking` / a worker thread, not the UI thread or first paint.
-pub fn sign_in_with_email(
+pub fn sign_in_with_email_and_password(
     email: impl AsRef<str>,
     password: impl AsRef<str>,
 ) -> Result<User, FirebaseError> {
@@ -17,10 +17,10 @@ pub fn sign_in_with_email(
     let email = email.as_ref();
     let password = password.as_ref();
     require_email_password(email, password)?;
-    native::sign_in_with_email(email.trim(), password)
+    native::sign_in_with_email_and_password(email.trim(), password)
 }
 
-pub fn create_user_with_email(
+pub fn create_user_with_email_and_password(
     email: impl AsRef<str>,
     password: impl AsRef<str>,
 ) -> Result<User, FirebaseError> {
@@ -28,7 +28,7 @@ pub fn create_user_with_email(
     let email = email.as_ref();
     let password = password.as_ref();
     require_email_password(email, password)?;
-    native::create_user_with_email(email.trim(), password)
+    native::create_user_with_email_and_password(email.trim(), password)
 }
 
 pub fn update_display_name(display_name: impl AsRef<str>) -> Result<(), FirebaseError> {
@@ -65,20 +65,20 @@ pub fn current_user() -> Result<Option<User>, FirebaseError> {
     native::current_user()
 }
 
-/// ID token for the current user.
+/// ID token for the current user (`User.getIdToken`).
 ///
 /// Returns `Ok(None)` when signed out. Pass `force_refresh = true` to bypass
 /// the native cache.
-pub fn id_token(force_refresh: bool) -> Result<Option<String>, FirebaseError> {
+pub fn get_id_token(force_refresh: bool) -> Result<Option<String>, FirebaseError> {
     require_initialized()?;
-    native::id_token(force_refresh)
+    native::get_id_token(force_refresh)
 }
 
-/// Point Auth at the local Emulator Suite.
+/// Point Auth at the local Emulator Suite (`useAuthEmulator`).
 ///
-/// Call after [`crate::initialize`]. JusFine may keep using staging cloud in
+/// Call after [`crate::initialize_app`]. JusFine may keep using staging cloud in
 /// debug builds and adopt the emulator later.
-pub fn use_emulator(host: impl AsRef<str>, port: u16) -> Result<(), FirebaseError> {
+pub fn use_auth_emulator(host: impl AsRef<str>, port: u16) -> Result<(), FirebaseError> {
     require_initialized()?;
     let host = host.as_ref().trim();
     if host.is_empty() {
@@ -86,11 +86,12 @@ pub fn use_emulator(host: impl AsRef<str>, port: u16) -> Result<(), FirebaseErro
             "emulator host must not be empty".into(),
         ));
     }
-    native::use_emulator(host, port)
+    native::use_auth_emulator(host, port)
 }
 
 /// Sign in (or create a session) with Google.
 ///
+/// Convenience over credential APIs — official Auth has no `signInWithGoogle`.
 /// Requires [`crate::FirebaseOptions::google_web_client_id`] (or iOS
 /// `GIDClientID` in Info.plist). Presents the system Google account sheet.
 /// Call from `spawn_blocking` / a worker thread.
@@ -108,14 +109,14 @@ pub fn link_with_google() -> Result<User, FirebaseError> {
     native::link_with_google()
 }
 
-/// Unlink a provider from the **current** user (`unlink` / `unlink(fromProvider:)`).
+/// Unlink a provider from the **current** user (`User.unlink`).
 ///
 /// Pass a Firebase provider id such as `"google.com"`, `"apple.com"`, or
 /// `"password"`. There is no dedicated “switch store account” API — to attach a
 /// different Google identity, call this then [`link_with_google`] while still
 /// signed in. Signing in with that provider after unlink (without linking)
 /// creates a **new** Firebase user.
-pub fn unlink_provider(provider_id: impl AsRef<str>) -> Result<User, FirebaseError> {
+pub fn unlink(provider_id: impl AsRef<str>) -> Result<User, FirebaseError> {
     require_initialized()?;
     let provider_id = provider_id.as_ref().trim();
     if provider_id.is_empty() {
@@ -123,7 +124,7 @@ pub fn unlink_provider(provider_id: impl AsRef<str>) -> Result<User, FirebaseErr
             "provider_id must not be empty".into(),
         ));
     }
-    let user = native::unlink_provider(provider_id)?;
+    let user = native::unlink(provider_id)?;
     crate::subscribe::dispatch_auth_state(Some(user.clone()));
     Ok(user)
 }

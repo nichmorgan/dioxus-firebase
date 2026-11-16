@@ -19,56 +19,56 @@ mod error;
 mod host_protocol;
 mod init;
 mod native;
-mod profile_prefer;
 mod subscribe;
 #[cfg(test)]
 mod test_support;
 mod user;
 
 pub use auth::{
-    create_user_with_email,
+    create_user_with_email_and_password,
     current_user,
-    id_token,
+    get_id_token,
     link_with_google,
     send_password_reset_email,
-    sign_in_with_email,
+    sign_in_with_email_and_password,
     sign_in_with_google,
     sign_out,
-    unlink_provider,
+    unlink,
     update_display_name,
     update_photo_url,
-    use_emulator,
+    use_auth_emulator,
     // Apple Sign-In blocked for now — re-enable when Console + OAuth are ready.
     // link_with_apple, sign_in_with_apple,
 };
 pub use config::FirebaseOptions;
 pub use error::FirebaseError;
-pub use init::{initialize, is_initialized};
-pub use subscribe::{subscribe_auth_state, AuthStateSubscription};
-pub use user::User;
+pub use init::{initialize_app, is_initialized};
+pub use subscribe::{auth_state_changes, AuthStateSubscription};
+pub use user::{User, UserInfo};
 
 /// Convenient re-exports for application crates.
 pub mod prelude {
     pub use crate::{
-        create_user_with_email,
+        auth_state_changes,
+        create_user_with_email_and_password,
         current_user,
-        id_token,
-        initialize,
+        get_id_token,
+        initialize_app,
         is_initialized,
         link_with_google,
         send_password_reset_email,
-        sign_in_with_email,
+        sign_in_with_email_and_password,
         sign_in_with_google,
         sign_out,
-        subscribe_auth_state,
-        unlink_provider,
+        unlink,
         update_display_name,
         update_photo_url,
-        use_emulator,
+        use_auth_emulator,
         AuthStateSubscription,
         FirebaseError,
         FirebaseOptions,
         User,
+        UserInfo,
         // Apple Sign-In blocked for now — re-enable when Console + OAuth are ready.
         // link_with_apple, sign_in_with_apple,
     };

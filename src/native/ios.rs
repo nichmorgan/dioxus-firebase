@@ -21,7 +21,7 @@ use crate::user::User;
 
 const HOST_CLASS_NAME: &str = "DioxusFirebaseAuthHost";
 
-pub(crate) fn initialize(options: &FirebaseOptions) -> Result<(), FirebaseError> {
+pub(crate) fn initialize_app(options: &FirebaseOptions) -> Result<(), FirebaseError> {
     let host = host_class()?;
     let api_key = nsstring(&options.api_key)?;
     let app_id = nsstring(&options.app_id)?;
@@ -34,7 +34,7 @@ pub(crate) fn initialize(options: &FirebaseOptions) -> Result<(), FirebaseError>
     let err: *mut Object = unsafe {
         msg_send![
             host,
-            initializeWithApiKey: api_key
+            initializeAppWithApiKey: api_key
             appId: app_id
             projectId: project_id
             messagingSenderId: messaging_sender_id
@@ -47,20 +47,27 @@ pub(crate) fn initialize(options: &FirebaseOptions) -> Result<(), FirebaseError>
     map_reply(err, parse_void)
 }
 
-pub(crate) fn sign_in_with_email(email: &str, password: &str) -> Result<User, FirebaseError> {
-    let host = host_class()?;
-    let email = nsstring(email)?;
-    let password = nsstring(password)?;
-    let reply: *mut Object = unsafe { msg_send![host, signInWithEmail: email password: password] };
-    map_reply(reply, parse_user)
-}
-
-pub(crate) fn create_user_with_email(email: &str, password: &str) -> Result<User, FirebaseError> {
+pub(crate) fn sign_in_with_email_and_password(
+    email: &str,
+    password: &str,
+) -> Result<User, FirebaseError> {
     let host = host_class()?;
     let email = nsstring(email)?;
     let password = nsstring(password)?;
     let reply: *mut Object =
-        unsafe { msg_send![host, createUserWithEmail: email password: password] };
+        unsafe { msg_send![host, signInWithEmailAndPassword: email password: password] };
+    map_reply(reply, parse_user)
+}
+
+pub(crate) fn create_user_with_email_and_password(
+    email: &str,
+    password: &str,
+) -> Result<User, FirebaseError> {
+    let host = host_class()?;
+    let email = nsstring(email)?;
+    let password = nsstring(password)?;
+    let reply: *mut Object =
+        unsafe { msg_send![host, createUserWithEmailAndPassword: email password: password] };
     map_reply(reply, parse_user)
 }
 
@@ -74,7 +81,7 @@ pub(crate) fn update_display_name(display_name: &str) -> Result<(), FirebaseErro
 pub(crate) fn update_photo_url(photo_url: &str) -> Result<(), FirebaseError> {
     let host = host_class()?;
     let url = nsstring(photo_url)?;
-    let reply: *mut Object = unsafe { msg_send![host, updatePhotoUrl: url] };
+    let reply: *mut Object = unsafe { msg_send![host, updatePhotoURL: url] };
     map_reply(reply, parse_void)
 }
 
@@ -97,25 +104,25 @@ pub(crate) fn current_user() -> Result<Option<User>, FirebaseError> {
     map_reply(reply, parse_optional_user)
 }
 
-pub(crate) fn id_token(force_refresh: bool) -> Result<Option<String>, FirebaseError> {
+pub(crate) fn get_id_token(force_refresh: bool) -> Result<Option<String>, FirebaseError> {
     let host = host_class()?;
     let reply: *mut Object =
-        unsafe { msg_send![host, idTokenWithForceRefresh: force_refresh as u8] };
+        unsafe { msg_send![host, getIdTokenWithForceRefresh: force_refresh as u8] };
     map_reply(reply, parse_optional_string)
 }
 
-pub(crate) fn use_emulator(host_name: &str, port: u16) -> Result<(), FirebaseError> {
+pub(crate) fn use_auth_emulator(host_name: &str, port: u16) -> Result<(), FirebaseError> {
     let host = host_class()?;
     let host_str = nsstring(host_name)?;
     let reply: *mut Object =
-        unsafe { msg_send![host, useEmulatorWithHost: host_str port: port as u32] };
+        unsafe { msg_send![host, useAuthEmulatorWithHost: host_str port: port as u32] };
     map_reply(reply, parse_void)
 }
 
-pub(crate) fn subscribe_auth_state() -> Result<(), FirebaseError> {
+pub(crate) fn auth_state_changes() -> Result<(), FirebaseError> {
     let host = host_class()?;
     let callback = dioxus_firebase_auth_state_changed as *const std::os::raw::c_void;
-    let reply: *mut Object = unsafe { msg_send![host, subscribeAuthStateWithCallback: callback] };
+    let reply: *mut Object = unsafe { msg_send![host, authStateChangesWithCallback: callback] };
     map_reply(reply, parse_void)
 }
 
@@ -131,10 +138,10 @@ pub(crate) fn link_with_google() -> Result<User, FirebaseError> {
     map_reply(reply, parse_user)
 }
 
-pub(crate) fn unlink_provider(provider_id: &str) -> Result<User, FirebaseError> {
+pub(crate) fn unlink(provider_id: &str) -> Result<User, FirebaseError> {
     let host = host_class()?;
     let provider = nsstring(provider_id)?;
-    let reply: *mut Object = unsafe { msg_send![host, unlinkProvider: provider] };
+    let reply: *mut Object = unsafe { msg_send![host, unlink: provider] };
     map_reply(reply, parse_user)
 }
 
@@ -327,15 +334,15 @@ mod tests {
         };
 
         assert!(matches!(
-            initialize(&opts).unwrap_err(),
+            initialize_app(&opts).unwrap_err(),
             FirebaseError::HostMissing(_)
         ));
         assert!(matches!(
-            sign_in_with_email("a@b.c", "pass").unwrap_err(),
+            sign_in_with_email_and_password("a@b.c", "pass").unwrap_err(),
             FirebaseError::HostMissing(_)
         ));
         assert!(matches!(
-            create_user_with_email("a@b.c", "pass").unwrap_err(),
+            create_user_with_email_and_password("a@b.c", "pass").unwrap_err(),
             FirebaseError::HostMissing(_)
         ));
         assert!(matches!(
@@ -359,15 +366,15 @@ mod tests {
             FirebaseError::HostMissing(_)
         ));
         assert!(matches!(
-            id_token(false).unwrap_err(),
+            get_id_token(false).unwrap_err(),
             FirebaseError::HostMissing(_)
         ));
         assert!(matches!(
-            use_emulator("127.0.0.1", 9099).unwrap_err(),
+            use_auth_emulator("127.0.0.1", 9099).unwrap_err(),
             FirebaseError::HostMissing(_)
         ));
         assert!(matches!(
-            subscribe_auth_state().unwrap_err(),
+            auth_state_changes().unwrap_err(),
             FirebaseError::HostMissing(_)
         ));
         assert!(matches!(
@@ -388,7 +395,7 @@ mod tests {
         //     FirebaseError::HostMissing(_)
         // ));
         assert!(matches!(
-            unlink_provider("google.com").unwrap_err(),
+            unlink("google.com").unwrap_err(),
             FirebaseError::HostMissing(_)
         ));
     }

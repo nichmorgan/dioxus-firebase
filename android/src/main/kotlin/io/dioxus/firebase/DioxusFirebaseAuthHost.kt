@@ -43,14 +43,13 @@ import java.util.concurrent.atomic.AtomicReference
  *
  * Reply protocol (matches Rust `host_protocol`):
  * - success void: `OK`
- * - success user: `OK\u001fuid\u001femail\u001fdisplayName\u001fproviderIds[\u001fphotoURL]`
+ * - success user: `OK\u001fuid\u001femail\u001fdisplayName\u001fphotoURL\u001fN`
+ *   then N times `providerId\u001fuid\u001femail\u001fdisplayName\u001fphotoURL`
  * - success optional string: `OK` or `OK\u001fvalue`
  * - error: `ERR\u001f<code>\u001f<message>`
  *
- * `providerIds` is a comma-separated list from `FirebaseUser.providerData`
- * (e.g. `password,google.com`). Wire email/photo prefer Google then Apple
- * `UserInfo`; displayName prefers top-level then Google then Apple
- * (keep in sync with Rust `prefer_profile_fields`).
+ * Top-level fields are Firebase user values as-is. Every `providerData` row is
+ * serialized (including `firebase` when present). No Google/Apple merge.
  */
 object DioxusFirebaseAuthHost {
     private const val UNIT = '\u001f'
@@ -68,7 +67,7 @@ object DioxusFirebaseAuthHost {
     // --- Public JNI API ---
 
     @JvmStatic
-    fun initialize(
+    fun initializeApp(
         context: Context,
         apiKey: String,
         appId: String,
@@ -110,11 +109,11 @@ object DioxusFirebaseAuthHost {
     }
 
     @JvmStatic
-    fun signInWithEmail(email: String, password: String): String =
+    fun signInWithEmailAndPassword(email: String, password: String): String =
         awaitTask({ auth.signInWithEmailAndPassword(email.trim(), password) }) { okUser(it.user) }
 
     @JvmStatic
-    fun createUserWithEmail(email: String, password: String): String =
+    fun createUserWithEmailAndPassword(email: String, password: String): String =
         awaitTask({ auth.createUserWithEmailAndPassword(email.trim(), password) }) { okUser(it.user) }
 
     @JvmStatic
@@ -122,8 +121,8 @@ object DioxusFirebaseAuthHost {
         updateProfile(displayName = displayName, photoUrl = null)
 
     @JvmStatic
-    fun updatePhotoUrl(photoUrl: String): String =
-        updateProfile(displayName = null, photoUrl = photoUrl)
+    fun updatePhotoURL(photoURL: String): String =
+        updateProfile(displayName = null, photoUrl = photoURL)
 
     @JvmStatic
     fun sendPasswordResetEmail(email: String): String =
@@ -142,7 +141,7 @@ object DioxusFirebaseAuthHost {
     }
 
     @JvmStatic
-    fun idToken(forceRefresh: Boolean): String {
+    fun getIdToken(forceRefresh: Boolean): String {
         val user = auth.currentUser ?: return ok()
         return awaitTask({ user.getIdToken(forceRefresh) }) { result ->
             val token = result?.token
@@ -151,13 +150,13 @@ object DioxusFirebaseAuthHost {
     }
 
     @JvmStatic
-    fun useEmulator(host: String, port: Int): String = safeCall {
+    fun useAuthEmulator(host: String, port: Int): String = safeCall {
         auth.useEmulator(host.trim(), port)
         ok()
     }
 
     @JvmStatic
-    fun subscribeAuthState(): String {
+    fun authStateChanges(): String {
         if (!subscribed.compareAndSet(false, true)) {
             onAuthStateChanged(auth.currentUser?.let(::userFields))
             return ok()
@@ -443,35 +442,23 @@ object DioxusFirebaseAuthHost {
     private fun okUser(user: FirebaseUser?): String =
         user?.let { "OK$UNIT${userFields(it)}" } ?: ok()
 
-    /**
-     * Keep preference rules in sync with Rust `prefer_profile_fields`:
-     * email/photo = google → apple → top-level; displayName = top-level → google → apple.
-     */
+    /** Top-level Firebase fields + every `providerData` row (no preference merge). */
     private fun userFields(user: FirebaseUser): String {
         val providerData = user.providerData
-        val providers = providerData
-            .map { it.providerId }
-            .filter { it.isNotBlank() && it != "firebase" }
-            .distinct()
-            .joinToString(",")
-        val google = providerData.firstOrNull { it.providerId == GoogleAuthProvider.PROVIDER_ID }
-        val apple = providerData.firstOrNull { it.providerId == "apple.com" }
-        val email = pickNonBlank(google?.email, apple?.email, user.email)
-        val displayName = pickNonBlank(user.displayName, google?.displayName, apple?.displayName)
-        val photo = pickNonBlank(
-            google?.photoUrl?.toString(),
-            apple?.photoUrl?.toString(),
-            user.photoUrl?.toString(),
-        )
-        return "${user.uid}$UNIT$email$UNIT$displayName$UNIT$providers$UNIT$photo"
-    }
-
-    private fun pickNonBlank(vararg candidates: String?): String {
-        for (c in candidates) {
-            val t = c?.trim().orEmpty()
-            if (t.isNotEmpty()) return t
+        val sb = StringBuilder()
+        sb.append(user.uid)
+        sb.append(UNIT).append(user.email.orEmpty())
+        sb.append(UNIT).append(user.displayName.orEmpty())
+        sb.append(UNIT).append(user.photoUrl?.toString().orEmpty())
+        sb.append(UNIT).append(providerData.size)
+        for (info in providerData) {
+            sb.append(UNIT).append(info.providerId.orEmpty())
+            sb.append(UNIT).append(info.uid.orEmpty())
+            sb.append(UNIT).append(info.email.orEmpty())
+            sb.append(UNIT).append(info.displayName.orEmpty())
+            sb.append(UNIT).append(info.photoUrl?.toString().orEmpty())
         }
-        return ""
+        return sb.toString()
     }
 
     private fun updateProfile(displayName: String?, photoUrl: String?): String {
