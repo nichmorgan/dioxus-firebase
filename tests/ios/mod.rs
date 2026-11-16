@@ -24,34 +24,50 @@ fn test_ios_firebase_auth_emulator_lifecycle(
     emulator_endpoint: (String, u16),
 ) -> Result<(), FirebaseError> {
     // 1. Initialize
-    initialize(demo_options)?;
+    initialize_app(demo_options)?;
 
     // 2. Connect to Local Emulator
     let (host, port) = emulator_endpoint;
-    use_emulator(&host, port)?;
+    use_auth_emulator(&host, port)?;
 
     // 3. Subscribe to Auth State
     let (tx, rx) = mpsc::channel();
-    let _sub = subscribe_auth_state(move |user| {
+    let _sub = auth_state_changes(move |user| {
         let _ = tx.send(user);
     })?;
 
     // 4. Create User
     let password = "TestPassword123!";
-    let created = create_user_with_email(&unique_email, password)?;
+    let created = create_user_with_email_and_password(&unique_email, password)?;
     assert_eq!(created.email.as_deref(), Some(unique_email.as_str()));
+    assert!(
+        created
+            .provider_data
+            .iter()
+            .any(|p| p.provider_id == "password"),
+        "email user should list password provider: {:?}",
+        created.provider_data
+    );
 
     // 5. Update Profile
     update_display_name("iOS E2E User")?;
     let updated = current_user()?.expect("should have updated user");
     assert_eq!(updated.display_name.as_deref(), Some("iOS E2E User"));
+    assert!(updated
+        .provider_data
+        .iter()
+        .any(|p| p.provider_id == "password"));
 
     // 6. Sign Out & Sign Back In
     sign_out()?;
     assert!(current_user()?.is_none());
 
-    let signed_in = sign_in_with_email(&unique_email, password)?;
+    let signed_in = sign_in_with_email_and_password(&unique_email, password)?;
     assert_eq!(signed_in.uid, created.uid);
+    assert!(signed_in
+        .provider_data
+        .iter()
+        .any(|p| p.provider_id == "password"));
 
     sign_out()?;
     Ok(())

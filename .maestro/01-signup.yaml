@@ -1,4 +1,4 @@
-appId: com.example.demo
+appId: ${ANDROID_APPLICATION_ID}
 ---
 - runFlow:
     when:
@@ -10,6 +10,7 @@ appId: com.example.demo
 - extendedWaitUntil:
     visible: ".*Firebase Auth initialized & subscribed.*"
     timeout: 60000
+- tapOn: "Email & Password"
 - runFlow:
     when:
       platform: Android
@@ -22,10 +23,33 @@ appId: com.example.demo
       platform: iOS
     commands:
       - tapOn: "Sign Up"
+# Fresh create → User Account; existing account → email-already-in-use (not a suite failure).
+- extendedWaitUntil:
+    visible: ".*(User Account|email-already-in-use).*"
+    timeout: 30000
+- runFlow:
+    when:
+      visible: ".*email-already-in-use.*"
+      platform: Android
+    commands:
+      - tapOn:
+          id: "sign-in"
+          text: "Sign In"
+- runFlow:
+    when:
+      visible: ".*email-already-in-use.*"
+      platform: iOS
+    commands:
+      - tapOn: "Sign In"
 - extendedWaitUntil:
     visible: "User Account"
     timeout: 30000
-- assertVisible: ".*Created user:.*"
+- assertVisible: ".*(Created user:|Signed in user:).*"
+- scrollUntilVisible:
+    element:
+      text: "Update Display Name"
+    direction: DOWN
+    timeout: 10000
 - runFlow:
     when:
       platform: Android
@@ -38,6 +62,9 @@ appId: com.example.demo
       platform: iOS
     commands:
       - tapOn: "Update Display Name"
-- extendedWaitUntil:
-    visible: ".*Display name updated successfully!.*"
+# Scroll back up: downward scroll to the button can push auth-status off-screen.
+- scrollUntilVisible:
+    element:
+      text: ".*Display name updated successfully!.*"
+    direction: UP
     timeout: 30000

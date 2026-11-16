@@ -20,6 +20,7 @@ use crate::user::User;
 
 const HOST_CLASS_DOT: &str = "io.dioxus.firebase.DioxusFirebaseAuthHost";
 
+#[allow(deprecated)] // jni-macros 0.22.4: AtomicBool::fetch_update → try_update
 const ON_AUTH_STATE_CHANGED: NativeMethod = native_method! {
     java_type = "io.dioxus.firebase.DioxusFirebaseAuthHost",
     static fn on_auth_state_changed(user_json: JString) -> (),
@@ -49,13 +50,14 @@ impl From<jni::errors::Error> for FirebaseError {
 
 // --- Public API ---
 
-pub(crate) fn initialize(options: &FirebaseOptions) -> Result<(), FirebaseError> {
+pub(crate) fn initialize_app(options: &FirebaseOptions) -> Result<(), FirebaseError> {
     let api_key = options.api_key.clone();
     let app_id = options.app_id.clone();
     let project_id = options.project_id.clone();
     let messaging_sender_id = options.messaging_sender_id.clone().unwrap_or_default();
     let storage_bucket = options.storage_bucket.clone().unwrap_or_default();
     let database_url = options.database_url.clone().unwrap_or_default();
+    let google_web_client_id = options.google_web_client_id.clone().unwrap_or_default();
 
     with_host(|env, host, context| {
         env.exception_clear();
@@ -65,13 +67,14 @@ pub(crate) fn initialize(options: &FirebaseOptions) -> Result<(), FirebaseError>
         let messaging_sender_id = env.new_string(&messaging_sender_id)?;
         let storage_bucket = env.new_string(&storage_bucket)?;
         let database_url = env.new_string(&database_url)?;
+        let google_web_client_id = env.new_string(&google_web_client_id)?;
 
         let reply = env
             .call_static_method(
                 host,
-                jni_str!("initialize"),
+                jni_str!("initializeApp"),
                 jni_sig!(
-                    "(Landroid/content/Context;Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;)Ljava/lang/String;"
+                    "(Landroid/content/Context;Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;)Ljava/lang/String;"
                 ),
                 &[
                     JValue::Object(context),
@@ -81,29 +84,36 @@ pub(crate) fn initialize(options: &FirebaseOptions) -> Result<(), FirebaseError>
                     JValue::Object(&messaging_sender_id),
                     JValue::Object(&storage_bucket),
                     JValue::Object(&database_url),
+                    JValue::Object(&google_web_client_id),
                 ],
             )
-            .map_err(|e| map_exception(env, e, "DioxusFirebaseAuthHost.initialize"))?
+            .map_err(|e| map_exception(env, e, "DioxusFirebaseAuthHost.initializeApp"))?
             .l()?;
 
         map_string_reply(env, reply, parse_void)
     })
 }
 
-pub(crate) fn sign_in_with_email(email: &str, password: &str) -> Result<User, FirebaseError> {
+pub(crate) fn sign_in_with_email_and_password(
+    email: &str,
+    password: &str,
+) -> Result<User, FirebaseError> {
     call_email_password(
-        jni_str!("signInWithEmail"),
-        "DioxusFirebaseAuthHost.signInWithEmail",
+        jni_str!("signInWithEmailAndPassword"),
+        "DioxusFirebaseAuthHost.signInWithEmailAndPassword",
         email,
         password,
         parse_user,
     )
 }
 
-pub(crate) fn create_user_with_email(email: &str, password: &str) -> Result<User, FirebaseError> {
+pub(crate) fn create_user_with_email_and_password(
+    email: &str,
+    password: &str,
+) -> Result<User, FirebaseError> {
     call_email_password(
-        jni_str!("createUserWithEmail"),
-        "DioxusFirebaseAuthHost.createUserWithEmail",
+        jni_str!("createUserWithEmailAndPassword"),
+        "DioxusFirebaseAuthHost.createUserWithEmailAndPassword",
         email,
         password,
         parse_user,
@@ -115,6 +125,15 @@ pub(crate) fn update_display_name(display_name: &str) -> Result<(), FirebaseErro
         jni_str!("updateDisplayName"),
         "DioxusFirebaseAuthHost.updateDisplayName",
         display_name,
+        parse_void,
+    )
+}
+
+pub(crate) fn update_photo_url(photo_url: &str) -> Result<(), FirebaseError> {
+    call_one_string(
+        jni_str!("updatePhotoURL"),
+        "DioxusFirebaseAuthHost.updatePhotoURL",
+        photo_url,
         parse_void,
     )
 }
@@ -144,52 +163,97 @@ pub(crate) fn current_user() -> Result<Option<User>, FirebaseError> {
     )
 }
 
-pub(crate) fn id_token(force_refresh: bool) -> Result<Option<String>, FirebaseError> {
+pub(crate) fn get_id_token(force_refresh: bool) -> Result<Option<String>, FirebaseError> {
     with_host(|env, host, _| {
         let reply = env
             .call_static_method(
                 host,
-                jni_str!("idToken"),
+                jni_str!("getIdToken"),
                 jni_sig!("(Z)Ljava/lang/String;"),
                 &[JValue::Bool(force_refresh)],
             )
-            .map_err(|e| map_exception(env, e, "DioxusFirebaseAuthHost.idToken"))?
+            .map_err(|e| map_exception(env, e, "DioxusFirebaseAuthHost.getIdToken"))?
             .l()?;
         map_string_reply(env, reply, parse_optional_string)
     })
 }
 
-pub(crate) fn use_emulator(host_name: &str, port: u16) -> Result<(), FirebaseError> {
+pub(crate) fn use_auth_emulator(host_name: &str, port: u16) -> Result<(), FirebaseError> {
     let host_name = host_name.to_string();
     with_host(|env, host, _| {
         let host_str = env.new_string(&host_name)?;
         let reply = env
             .call_static_method(
                 host,
-                jni_str!("useEmulator"),
+                jni_str!("useAuthEmulator"),
                 jni_sig!("(Ljava/lang/String;I)Ljava/lang/String;"),
                 &[JValue::Object(&host_str), JValue::Int(i32::from(port))],
             )
-            .map_err(|e| map_exception(env, e, "DioxusFirebaseAuthHost.useEmulator"))?
+            .map_err(|e| map_exception(env, e, "DioxusFirebaseAuthHost.useAuthEmulator"))?
             .l()?;
         map_string_reply(env, reply, parse_void)
     })
 }
 
-pub(crate) fn subscribe_auth_state() -> Result<(), FirebaseError> {
+pub(crate) fn auth_state_changes() -> Result<(), FirebaseError> {
     with_host(|env, host, _| {
         register_auth_callback(env, host)?;
         let reply = env
             .call_static_method(
                 host,
-                jni_str!("subscribeAuthState"),
+                jni_str!("authStateChanges"),
                 jni_sig!("()Ljava/lang/String;"),
                 &[],
             )
-            .map_err(|e| map_exception(env, e, "DioxusFirebaseAuthHost.subscribeAuthState"))?
+            .map_err(|e| map_exception(env, e, "DioxusFirebaseAuthHost.authStateChanges"))?
             .l()?;
         map_string_reply(env, reply, parse_void)
     })
+}
+
+pub(crate) fn sign_in_with_google() -> Result<User, FirebaseError> {
+    call_no_args(
+        jni_str!("signInWithGoogle"),
+        "DioxusFirebaseAuthHost.signInWithGoogle",
+        parse_user,
+    )
+}
+
+pub(crate) fn link_with_google() -> Result<User, FirebaseError> {
+    call_no_args(
+        jni_str!("linkWithGoogle"),
+        "DioxusFirebaseAuthHost.linkWithGoogle",
+        parse_user,
+    )
+}
+
+pub(crate) fn unlink(provider_id: &str) -> Result<User, FirebaseError> {
+    call_one_string(
+        jni_str!("unlink"),
+        "DioxusFirebaseAuthHost.unlink",
+        provider_id,
+        parse_user,
+    )
+}
+
+// Apple Sign-In blocked for now — re-enable when Console + OAuth are ready.
+#[allow(dead_code)]
+pub(crate) fn sign_in_with_apple() -> Result<User, FirebaseError> {
+    call_no_args(
+        jni_str!("signInWithApple"),
+        "DioxusFirebaseAuthHost.signInWithApple",
+        parse_user,
+    )
+}
+
+// Apple Sign-In blocked for now — re-enable when Console + OAuth are ready.
+#[allow(dead_code)]
+pub(crate) fn link_with_apple() -> Result<User, FirebaseError> {
+    call_no_args(
+        jni_str!("linkWithApple"),
+        "DioxusFirebaseAuthHost.linkWithApple",
+        parse_user,
+    )
 }
 
 // --- JNI Dispatch Helpers ---
@@ -500,22 +564,27 @@ mod tests {
             messaging_sender_id: None,
             storage_bucket: None,
             database_url: None,
+            google_web_client_id: None,
         };
 
         assert!(matches!(
-            initialize(&opts).unwrap_err(),
+            initialize_app(&opts).unwrap_err(),
             FirebaseError::HostMissing(_)
         ));
         assert!(matches!(
-            sign_in_with_email("a@b.c", "pass").unwrap_err(),
+            sign_in_with_email_and_password("a@b.c", "pass").unwrap_err(),
             FirebaseError::HostMissing(_)
         ));
         assert!(matches!(
-            create_user_with_email("a@b.c", "pass").unwrap_err(),
+            create_user_with_email_and_password("a@b.c", "pass").unwrap_err(),
             FirebaseError::HostMissing(_)
         ));
         assert!(matches!(
             update_display_name("Ada").unwrap_err(),
+            FirebaseError::HostMissing(_)
+        ));
+        assert!(matches!(
+            update_photo_url("https://ex/p.png").unwrap_err(),
             FirebaseError::HostMissing(_)
         ));
         assert!(matches!(
@@ -531,15 +600,36 @@ mod tests {
             FirebaseError::HostMissing(_)
         ));
         assert!(matches!(
-            id_token(false).unwrap_err(),
+            get_id_token(false).unwrap_err(),
             FirebaseError::HostMissing(_)
         ));
         assert!(matches!(
-            use_emulator("127.0.0.1", 9099).unwrap_err(),
+            use_auth_emulator("127.0.0.1", 9099).unwrap_err(),
             FirebaseError::HostMissing(_)
         ));
         assert!(matches!(
-            subscribe_auth_state().unwrap_err(),
+            auth_state_changes().unwrap_err(),
+            FirebaseError::HostMissing(_)
+        ));
+        assert!(matches!(
+            sign_in_with_google().unwrap_err(),
+            FirebaseError::HostMissing(_)
+        ));
+        // Apple Sign-In blocked for now — re-enable when Console + OAuth are ready.
+        // assert!(matches!(
+        //     sign_in_with_apple().unwrap_err(),
+        //     FirebaseError::HostMissing(_)
+        // ));
+        assert!(matches!(
+            link_with_google().unwrap_err(),
+            FirebaseError::HostMissing(_)
+        ));
+        // assert!(matches!(
+        //     link_with_apple().unwrap_err(),
+        //     FirebaseError::HostMissing(_)
+        // ));
+        assert!(matches!(
+            unlink("google.com").unwrap_err(),
             FirebaseError::HostMissing(_)
         ));
     }

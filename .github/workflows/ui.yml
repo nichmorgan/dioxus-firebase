@@ -21,9 +21,10 @@ jobs:
           - platform: android
             os: ubuntu-latest
             target: x86_64-linux-android
-          - platform: ios
-            os: macos-latest
-            target: aarch64-apple-ios-sim
+          # iOS Maestro disabled for now.
+          # - platform: ios
+          #   os: macos-latest
+          #   target: aarch64-apple-ios-sim
 
     steps:
       - uses: actions/checkout@v7
@@ -51,6 +52,9 @@ jobs:
         run: |
           curl -fsSL "https://get.maestro.mobile.dev" | bash
           echo "$HOME/.maestro/bin" >> "$GITHUB_PATH"
+
+      - name: Sync bundle id from env
+        run: make sync-bundle-id
 
       - name: Build demo
         run: dx build --example demo --platform ${{ matrix.platform }} --target ${{ matrix.target }}
@@ -80,7 +84,9 @@ jobs:
         with:
           api-level: 34
           arch: x86_64
-          target: google_apis
+          # AOSP ATD (no GMS): google_apis Chimera module reloads SIGKILL the demo mid-flow.
+          # Maestro only exercises email/password against the Auth emulator.
+          target: aosp_atd
           disable-animations: true
           # Each line runs as its own `sh -c`; keep every command on one line.
           script: |

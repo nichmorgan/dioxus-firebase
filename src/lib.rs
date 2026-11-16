@@ -10,7 +10,8 @@
 //! (`invalid-credential`, `email-already-in-use`, …) — map them to PT-BR (or
 //! other) copy in the app.
 //!
-//! JusFine dogfoods this crate for email/password auth.
+//! JusFine dogfoods this crate for email/password and Google auth.
+//! Apple Sign-In is implemented but not exported yet (blocked — re-enable later).
 
 mod auth;
 mod config;
@@ -19,25 +20,57 @@ mod host_protocol;
 mod init;
 mod native;
 mod subscribe;
+#[cfg(test)]
+mod test_support;
 mod user;
 
 pub use auth::{
-    create_user_with_email, current_user, id_token, send_password_reset_email, sign_in_with_email,
-    sign_out, update_display_name, use_emulator,
+    create_user_with_email_and_password,
+    current_user,
+    get_id_token,
+    link_with_google,
+    send_password_reset_email,
+    sign_in_with_email_and_password,
+    sign_in_with_google,
+    sign_out,
+    unlink,
+    update_display_name,
+    update_photo_url,
+    use_auth_emulator,
+    // Apple Sign-In blocked for now — re-enable when Console + OAuth are ready.
+    // link_with_apple, sign_in_with_apple,
 };
 pub use config::FirebaseOptions;
 pub use error::FirebaseError;
-pub use init::{initialize, is_initialized};
-pub use subscribe::{subscribe_auth_state, AuthStateSubscription};
-pub use user::User;
+pub use init::{initialize_app, is_initialized};
+pub use subscribe::{auth_state_changes, AuthStateSubscription};
+pub use user::{User, UserInfo};
 
 /// Convenient re-exports for application crates.
 pub mod prelude {
     pub use crate::{
-        create_user_with_email, current_user, id_token, initialize, is_initialized,
-        send_password_reset_email, sign_in_with_email, sign_out, subscribe_auth_state,
-        update_display_name, use_emulator, AuthStateSubscription, FirebaseError, FirebaseOptions,
+        auth_state_changes,
+        create_user_with_email_and_password,
+        current_user,
+        get_id_token,
+        initialize_app,
+        is_initialized,
+        link_with_google,
+        send_password_reset_email,
+        sign_in_with_email_and_password,
+        sign_in_with_google,
+        sign_out,
+        unlink,
+        update_display_name,
+        update_photo_url,
+        use_auth_emulator,
+        AuthStateSubscription,
+        FirebaseError,
+        FirebaseOptions,
         User,
+        UserInfo,
+        // Apple Sign-In blocked for now — re-enable when Console + OAuth are ready.
+        // link_with_apple, sign_in_with_apple,
     };
 }
 
@@ -55,6 +88,7 @@ mod tests {
             messaging_sender_id: None,
             storage_bucket: None,
             database_url: None,
+            google_web_client_id: None,
         }
     }
 
@@ -75,6 +109,7 @@ mod tests {
             messaging_sender_id: None,
             storage_bucket: None,
             database_url: None,
+            google_web_client_id: None,
         };
         let err = opts.validate().unwrap_err();
         assert!(err.to_string().contains(expected_err));

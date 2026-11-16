@@ -1,4 +1,4 @@
-appId: com.example.demo
+appId: ${ANDROID_APPLICATION_ID}
 ---
 - runFlow:
     when:
@@ -10,6 +10,7 @@ appId: com.example.demo
 - extendedWaitUntil:
     visible: ".*Firebase Auth initialized & subscribed.*"
     timeout: 60000
+- tapOn: "Email & Password"
 - runFlow:
     when:
       platform: Android

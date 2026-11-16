@@ -39,6 +39,11 @@ android {
 dependencies {
     implementation(platform("com.google.firebase:firebase-bom:34.19.0"))
     implementation("com.google.firebase:firebase-auth")
+    // Credential Manager + Google ID (Google sign-in). Keep versions current with
+    // AndroidX / Google Identity guidance; Firebase BoM does not manage these.
+    implementation("androidx.credentials:credentials:1.3.0")
+    implementation("androidx.credentials:credentials-play-services-auth:1.3.0")
+    implementation("com.google.android.libraries.identity.googleid:googleid:1.1.1")
 }
 
 tasks.withType<AbstractArchiveTask>().configureEach {
