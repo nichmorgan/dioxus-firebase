@@ -28,6 +28,13 @@ Checklist:
 
 ## Maestro
 
+Install the Maestro CLI once (same as CI):
+
+```bash
+curl -fsSL https://get.maestro.mobile.dev | bash
+# ensure ~/.maestro/bin is on PATH, or rely on `make maestro` which prepends it
+```
+
 [`.maestro/`](../.maestro/) opens the Email & Password tile, signs up with the prefilled account, then logs in with it. The suite does not delete accounts. A re-run needs a new `make emulator` or `make maestro`, because nothing clears accounts inside a running emulator.
 
 `make maestro` starts an empty Auth emulator, runs both flows against that process, and shuts it down. [`.github/workflows/ui.yml`](../.github/workflows/ui.yml) runs both flows on an Android emulator and an iOS simulator. Locally, with the demo installed on a booted device:

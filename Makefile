@@ -32,12 +32,19 @@ emulator:
 	$(FIREBASE) emulators:start --only auth --project $(PROJECT)
 
 # Flows use appId: $${ANDROID_APPLICATION_ID}; never hardcode a package in .maestro/.
+# Requires Maestro CLI (CI: curl -fsSL https://get.maestro.mobile.dev | bash).
 maestro:
 	@$(stop_auth_emulator)
-	@app_id="$${ANDROID_APPLICATION_ID:-}"; \
+	@export PATH="$$HOME/.maestro/bin:$$PATH"; \
+	app_id="$${ANDROID_APPLICATION_ID:-}"; \
 	if [ -z "$$app_id" ] && [ -f .env ]; then \
 		app_id=$$(grep -E '^[[:space:]]*ANDROID_APPLICATION_ID=' .env | tail -1 | sed 's/^[[:space:]]*ANDROID_APPLICATION_ID=//' | sed "s/^['\"]//;s/['\"]$$//" | tr -d '\r'); \
 	fi; \
 	app_id=$$(echo -n "$$app_id" | xargs); \
 	app_id="$${app_id:-$(DEFAULT_ANDROID_APPLICATION_ID)}"; \
+	if ! command -v maestro >/dev/null 2>&1; then \
+		echo "maestro: command not found. Install with: curl -fsSL https://get.maestro.mobile.dev | bash" >&2; \
+		echo "Then ensure $$HOME/.maestro/bin is on PATH (this target prepends it)." >&2; \
+		exit 127; \
+	fi; \
 	$(FIREBASE) emulators:exec --only auth --project $(PROJECT) -- "maestro test -e ANDROID_APPLICATION_ID=$$app_id $(MAESTRO_FLAGS) .maestro"

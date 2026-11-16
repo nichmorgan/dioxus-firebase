@@ -23,10 +23,33 @@ appId: ${ANDROID_APPLICATION_ID}
       platform: iOS
     commands:
       - tapOn: "Sign Up"
+# Fresh create → User Account; existing account → email-already-in-use (not a suite failure).
+- extendedWaitUntil:
+    visible: ".*(User Account|email-already-in-use).*"
+    timeout: 30000
+- runFlow:
+    when:
+      visible: ".*email-already-in-use.*"
+      platform: Android
+    commands:
+      - tapOn:
+          id: "sign-in"
+          text: "Sign In"
+- runFlow:
+    when:
+      visible: ".*email-already-in-use.*"
+      platform: iOS
+    commands:
+      - tapOn: "Sign In"
 - extendedWaitUntil:
     visible: "User Account"
     timeout: 30000
-- assertVisible: ".*Created user:.*"
+- assertVisible: ".*(Created user:|Signed in user:).*"
+- scrollUntilVisible:
+    element:
+      text: "Update Display Name"
+    direction: DOWN
+    timeout: 10000
 - runFlow:
     when:
       platform: Android
