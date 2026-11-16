@@ -4,7 +4,7 @@
 - Write Rust tests with `rstest`, including native Android/iOS parity tests.
 - Keep end-to-end coverage in this crate as normal Rust tests. Run Android tests with `cross test` (or `cargo ndk`).
 - Serve and document the demo only with `dx serve --example demo`. Start a stateless Auth emulator with `make emulator` (Firebase CLI, project `demo-project`, no import/export), using `10.0.2.2` on the Android emulator. Maestro does not delete accounts.
-- Keep GitHub Actions short by reusing trusted existing actions. Maestro UI tests are an Android and iOS matrix. Suite order is `.maestro/config.yaml` `flowsOrder`: signup, then login, with `continueOnFailure: false`.
+- Keep GitHub Actions short by reusing trusted existing actions. Maestro UI tests are an Android and iOS matrix; iOS CI is temporarily disabled (matrix row commented out in `.github/workflows/ui.yml`; local `make maestro` on iOS still fine). Suite order is `.maestro/config.yaml` `flowsOrder`: signup, then login, with `continueOnFailure: false`.
 - Leave `Cargo.lock` gitignored. This is a library, and downstream apps resolve their own lockfile.
 - Keep dependency source out of this library. A vendored tree such as `third_party/tao`, or a path `[patch]` that requires it, does not belong here.
 
