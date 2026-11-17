@@ -306,7 +306,7 @@ mod tests {
     #[case("invalid-credential", "Wrong password")]
     #[case("email-already-in-use", "Taken")]
     #[case("native", "Crash message")]
-    #[case("cancelled", "user cancelled")]
+    #[case("canceled", "user canceled")]
     #[case("unavailable", "google_web_client_id is required")]
     #[case("account-exists-with-different-credential", "Exists")]
     #[case("credential-already-in-use", "In use")]

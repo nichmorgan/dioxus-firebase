@@ -235,8 +235,7 @@ object DioxusFirebaseAuthHost {
             } else {
                 auth.startActivityForSignInWithProvider(activity, provider)
             }
-            val result = Tasks.await(task, TASK_TIMEOUT_SECONDS, TimeUnit.SECONDS)
-            okUser(result.user)
+            awaitTask({ task }) { okUser(it.user) }
         } catch (t: Throwable) {
             mapThrowable(t)
         }
@@ -320,7 +319,7 @@ object DioxusFirebaseAuthHost {
         // Wire form: ERR\u001f<code>\u001f<message>
         val parts = errReply.split('\u001f')
         if (parts.size < 3 || parts[0] != "ERR") return false
-        if (parts[1] == "cancelled") return false
+        if (parts[1] == "canceled") return false
         val message = parts[2]
         return message.contains("Cannot find a matching credential", ignoreCase = true) ||
             message.contains("No credentials available", ignoreCase = true) ||
@@ -350,7 +349,7 @@ object DioxusFirebaseAuthHost {
                             CredentialResult.Err(
                                 when (e) {
                                     is GetCredentialCancellationException ->
-                                        err("cancelled", e.message ?: "user cancelled Google sign-in")
+                                        err("canceled", e.message ?: "user canceled Google sign-in")
                                     is NoCredentialException ->
                                         err("unavailable", e.message ?: "No credentials available")
                                     else -> err("unavailable", e.message ?: e.toString())

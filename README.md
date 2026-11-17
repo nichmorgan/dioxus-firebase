@@ -1,6 +1,6 @@
 # dioxus-firebase
 
-**Unofficial** [Dioxus](https://dioxuslabs.com/) bridge for [Firebase Auth](https://firebase.google.com/docs/auth) (email/password, Google).
+**Unofficial** [Dioxus](https://dioxuslabs.com/) bridge for [Firebase Auth](https://firebase.google.com/docs/auth) (email/password, Google, Apple).
 
 **Mobile only for now** (iOS and Android). Web and desktop return `UnsupportedPlatform`.
 
@@ -8,7 +8,7 @@ This crate is **not affiliated** with Google / Firebase. [JusFine](https://githu
 
 ## Status
 
-Early — email/password plus Google sign-in/link/unlink, profile display name / photo URL. Apple Sign-In is implemented in the native hosts but **not exported** yet (blocked). No phone auth, email verification, or custom claims.
+Early — email/password plus Google and Apple sign-in/link/unlink, profile display name / photo URL. No phone auth, email verification, or custom claims.
 
 ## Architecture
 
@@ -53,6 +53,7 @@ Call mutations from `spawn_blocking` (or another worker thread). Social sheets p
 ## Capabilities
 
 - [Google sign-in / link](docs/google-sign-in.md) — Console setup, SHA-1, iOS URL schemes
+- [Apple sign-in / link](docs/apple-sign-in.md) — Console grouping, Android OAuth, iOS capability
 - [Auth-state + Dioxus signals](docs/auth-state.md) — prefer `auth_state_changes` over polling
 - [Errors and linking](docs/errors-and-linking.md) — wire codes, link/unlink (no switch API)
 - [Auth emulator](docs/auth-emulator.md) — `use_auth_emulator`, `10.0.2.2` vs `127.0.0.1`
@@ -73,6 +74,7 @@ Emulator vs live `.env` modes, Maestro, and CI: [docs/demo-and-maestro.md](docs/
 | -- | -- |
 | [Getting started](docs/getting-started.md) | Init, `spawn_blocking`, Android / iOS embedding |
 | [Google sign-in](docs/google-sign-in.md) | Console, Credential Manager, iOS callbacks |
+| [Apple sign-in](docs/apple-sign-in.md) | Console grouping, Android OAuth, iOS capability |
 | [Auth-state](docs/auth-state.md) | Signals + channel pattern |
 | [Errors and linking](docs/errors-and-linking.md) | Wire codes, link / unlink |
 | [Auth emulator](docs/auth-emulator.md) | Hosts, `make emulator`, cleartext |

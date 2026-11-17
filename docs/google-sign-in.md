@@ -2,9 +2,9 @@
 
 Same Rust APIs on both platforms (`sign_in_with_google` / `link_with_google`). Enable Google under Authentication in the Firebase Console. Pass the OAuth **web** client ID as `google_web_client_id` on [`FirebaseOptions`](getting-started.md).
 
-Wire codes include `cancelled` (sheet dismissed) and `unavailable` (missing client ID / Activity / presentation). Federated sign-in against the Auth emulator is limited — keep email/emulator for CI; exercise live Google on a real project.
+Wire codes include `canceled` (sheet dismissed) and `unavailable` (missing client ID / Activity / presentation). Federated sign-in against the Auth emulator is limited — keep email/emulator for CI; exercise live Google on a real project.
 
-Apple Sign-In host code remains in the Android/iOS hosts but is **not exported** from the Rust API yet (blocked — re-enable later).
+Apple: [Apple sign-in](apple-sign-in.md).
 
 ## Android
 

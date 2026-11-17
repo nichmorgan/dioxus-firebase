@@ -102,8 +102,7 @@ enum Screen {
     Home,
     Email,
     Google,
-    // Apple Sign-In blocked for now — re-enable when Console + OAuth are ready.
-    // Apple,
+    Apple,
     Account,
 }
 
@@ -295,12 +294,11 @@ fn app() -> Element {
                         onclick: move |_| screen.set(Screen::Google),
                         "Google"
                     }
-                    // Apple Sign-In blocked for now — re-enable when Console + OAuth are ready.
-                    // button {
-                    //     class: "tile",
-                    //     onclick: move |_| screen.set(Screen::Apple),
-                    //     "Apple"
-                    // }
+                    button {
+                        class: "tile",
+                        onclick: move |_| screen.set(Screen::Apple),
+                        "Apple"
+                    }
                     button {
                         class: "tile",
                         onclick: move |_| screen.set(Screen::Account),
@@ -326,15 +324,15 @@ fn app() -> Element {
                 h1 { "Google" }
                 {google_body(auth_state, status_message, screen)}
             },
-            // Screen::Apple => rsx! {
-            //     button {
-            //         class: "back",
-            //         onclick: move |_| screen.set(Screen::Home),
-            //         "Back"
-            //     }
-            //     h1 { "Apple" }
-            //     {apple_body(auth_state, status_message, screen)}
-            // },
+            Screen::Apple => rsx! {
+                button {
+                    class: "back",
+                    onclick: move |_| screen.set(Screen::Home),
+                    "Back"
+                }
+                h1 { "Apple" }
+                {apple_body(auth_state, status_message, screen)}
+            },
             Screen::Account => rsx! {
                 button {
                     class: "back",
@@ -540,62 +538,61 @@ fn google_body(
     }
 }
 
-// Apple Sign-In blocked for now — re-enable when Console + OAuth are ready.
-// fn apple_body(
-//     auth_state: Signal<AuthState>,
-//     mut status_message: Signal<String>,
-//     mut screen: Signal<Screen>,
-// ) -> Element {
-//     let signed_in = matches!(auth_state(), AuthState::SignedIn(_));
-//     rsx! {
-//         div { class: "panel",
-//             button {
-//                 id: "sign-in-apple",
-//                 class: "btn btn-apple",
-//                 onclick: move |_| {
-//                     spawn_auth(
-//                         sign_in_with_apple,
-//                         move |result| match result {
-//                             Ok(user) => {
-//                                 status_message.set(format!(
-//                                     "Signed in with Apple: {} ({})",
-//                                     user.uid,
-//                                     provider_ids_joined(&user, ",")
-//                                 ));
-//                                 screen.set(Screen::Account);
-//                             }
-//                             Err(err) => {
-//                                 status_message.set(format!("Apple sign-in error: {err}"))
-//                             }
-//                         },
-//                     );
-//                 },
-//                 "Sign in with Apple"
-//             }
-//             if signed_in {
-//                 button {
-//                     id: "link-apple",
-//                     class: "btn btn-apple",
-//                     onclick: move |_| {
-//                         spawn_auth(
-//                             link_with_apple,
-//                             move |result| match result {
-//                                 Ok(user) => status_message.set(format!(
-//                                     "Linked Apple: {}",
-//                                     provider_ids_joined(&user, ",")
-//                                 )),
-//                                 Err(err) => {
-//                                     status_message.set(format!("Link Apple error: {err}"))
-//                                 }
-//                             },
-//                         );
-//                     },
-//                     "Link Apple"
-//                 }
-//             }
-//         }
-//     }
-// }
+fn apple_body(
+    auth_state: Signal<AuthState>,
+    mut status_message: Signal<String>,
+    mut screen: Signal<Screen>,
+) -> Element {
+    let signed_in = matches!(auth_state(), AuthState::SignedIn(_));
+    rsx! {
+        div { class: "panel",
+            button {
+                id: "sign-in-apple",
+                class: "btn btn-apple",
+                onclick: move |_| {
+                    spawn_auth(
+                        sign_in_with_apple,
+                        move |result| match result {
+                            Ok(user) => {
+                                status_message.set(format!(
+                                    "Signed in with Apple: {} ({})",
+                                    user.uid,
+                                    provider_ids_joined(&user, ",")
+                                ));
+                                screen.set(Screen::Account);
+                            }
+                            Err(err) => {
+                                status_message.set(format!("Apple sign-in error: {err}"))
+                            }
+                        },
+                    );
+                },
+                "Sign in with Apple"
+            }
+            if signed_in {
+                button {
+                    id: "link-apple",
+                    class: "btn btn-apple",
+                    onclick: move |_| {
+                        spawn_auth(
+                            link_with_apple,
+                            move |result| match result {
+                                Ok(user) => status_message.set(format!(
+                                    "Linked Apple: {}",
+                                    provider_ids_joined(&user, ",")
+                                )),
+                                Err(err) => {
+                                    status_message.set(format!("Link Apple error: {err}"))
+                                }
+                            },
+                        );
+                    },
+                    "Link Apple"
+                }
+            }
+        }
+    }
+}
 
 fn account_body(
     auth_state: Signal<AuthState>,
@@ -607,7 +604,7 @@ fn account_body(
             p { style: "margin: 16px;", "Connecting to Firebase Native Bridge..." }
         },
         AuthState::SignedOut => rsx! {
-            p { style: "margin: 16px;", "Sign in from Email or Google to manage your account." }
+            p { style: "margin: 16px;", "Sign in from Email, Google, or Apple to manage your account." }
         },
         AuthState::SignedIn(user) => {
             let uid = user.uid.clone();

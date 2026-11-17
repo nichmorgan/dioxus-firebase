@@ -274,7 +274,7 @@ public class DioxusFirebaseAuthHost: NSObject {
                 GIDSignIn.sharedInstance.signIn(withPresenting: presenter) { result, error in
                     if let error = error as NSError? {
                         if error.code == GIDSignInError.canceled.rawValue {
-                            finish(err("cancelled", error.localizedDescription))
+                            finish(err("canceled", error.localizedDescription))
                         } else {
                             finish(err("unavailable", error.localizedDescription))
                         }
@@ -295,9 +295,16 @@ public class DioxusFirebaseAuthHost: NSObject {
         }
     }
 
+    /// FlutterFire iOS `signInWithProvider(AppleAuthProvider)` is this path, not
+    /// `OAuthProvider(providerID: "apple.com")`. Firebase Auth 11.15 fatalErrors
+    /// that initializer unless the Auth emulator is set, and tells you to use
+    /// the Apple SDK. Scopes are `email` and `name`, matching FlutterFire.
     private static func signInOrLinkWithApple(link: Bool) -> String {
         if Thread.isMainThread {
             return err("native", "Firebase Auth waits must not run on the main thread; use spawn_blocking")
+        }
+        if link && auth.currentUser == nil {
+            return err("requires-recent-login", "no current user")
         }
         return awaitReply { finish in
             DispatchQueue.main.async {
@@ -306,11 +313,11 @@ public class DioxusFirebaseAuthHost: NSObject {
                     return
                 }
                 let hashed = sha256(rawNonce)
-                let coordinator = AppleSignInCoordinator(rawNonce: rawNonce) { outcome in
+                let coordinator = AppleSignInCoordinator { outcome in
                     appleCoordinator = nil
                     switch outcome {
-                    case .cancelled:
-                        finish(err("cancelled", "user cancelled Apple sign-in"))
+                    case .canceled:
+                        finish(err("canceled", "user canceled Apple sign-in"))
                     case .failed(let message):
                         finish(err("unavailable", message))
                     case .success(let appleIdToken, let fullName):
@@ -636,21 +643,22 @@ public class DioxusFirebaseAuthHost: NSObject {
 }
 
 // MARK: - Apple Sign In coordinator
+//
+// Same shape as FlutterFire `launchAppleSignInRequest`: hashed nonce, email
+// and name scopes, then `OAuthProvider.appleCredential`.
 
 private final class AppleSignInCoordinator: NSObject, ASAuthorizationControllerDelegate,
     ASAuthorizationControllerPresentationContextProviding
 {
     enum Outcome {
         case success(idToken: String, fullName: PersonNameComponents?)
-        case cancelled
+        case canceled
         case failed(String)
     }
 
-    private let rawNonce: String
     private let completion: (Outcome) -> Void
 
-    init(rawNonce: String, completion: @escaping (Outcome) -> Void) {
-        self.rawNonce = rawNonce
+    init(completion: @escaping (Outcome) -> Void) {
         self.completion = completion
     }
 
@@ -697,7 +705,7 @@ private final class AppleSignInCoordinator: NSObject, ASAuthorizationControllerD
     ) {
         let ns = error as NSError
         if ns.code == ASAuthorizationError.canceled.rawValue {
-            completion(.cancelled)
+            completion(.canceled)
         } else {
             completion(.failed(ns.localizedDescription))
         }

@@ -145,16 +145,12 @@ pub(crate) fn unlink(provider_id: &str) -> Result<User, FirebaseError> {
     map_reply(reply, parse_user)
 }
 
-// Apple Sign-In blocked for now — re-enable when Console + OAuth are ready.
-#[allow(dead_code)]
 pub(crate) fn sign_in_with_apple() -> Result<User, FirebaseError> {
     let host = host_class()?;
     let reply: *mut Object = unsafe { msg_send![host, signInWithApple] };
     map_reply(reply, parse_user)
 }
 
-// Apple Sign-In blocked for now — re-enable when Console + OAuth are ready.
-#[allow(dead_code)]
 pub(crate) fn link_with_apple() -> Result<User, FirebaseError> {
     let host = host_class()?;
     let reply: *mut Object = unsafe { msg_send![host, linkWithApple] };
@@ -381,19 +377,18 @@ mod tests {
             sign_in_with_google().unwrap_err(),
             FirebaseError::HostMissing(_)
         ));
-        // Apple Sign-In blocked for now — re-enable when Console + OAuth are ready.
-        // assert!(matches!(
-        //     sign_in_with_apple().unwrap_err(),
-        //     FirebaseError::HostMissing(_)
-        // ));
+        assert!(matches!(
+            sign_in_with_apple().unwrap_err(),
+            FirebaseError::HostMissing(_)
+        ));
         assert!(matches!(
             link_with_google().unwrap_err(),
             FirebaseError::HostMissing(_)
         ));
-        // assert!(matches!(
-        //     link_with_apple().unwrap_err(),
-        //     FirebaseError::HostMissing(_)
-        // ));
+        assert!(matches!(
+            link_with_apple().unwrap_err(),
+            FirebaseError::HostMissing(_)
+        ));
         assert!(matches!(
             unlink("google.com").unwrap_err(),
             FirebaseError::HostMissing(_)

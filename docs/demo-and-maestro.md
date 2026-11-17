@@ -1,6 +1,6 @@
 # Demo and Maestro
 
-[`examples/demo.rs`](../examples/demo.rs) is a home grid of feature tiles (Email & Password, Google, Account). Apple is hidden until Sign-In is re-enabled.
+[`examples/demo.rs`](../examples/demo.rs) is a home grid of feature tiles (Email & Password, Google, Apple, Account). The Apple tile is a manual live-project check, same as live Google. Maestro stays on email/emulator and does not open Apple. Setup and the cross-platform uid script: [Apple sign-in](apple-sign-in.md).
 
 The tracked template [`Dioxus.toml.example`](../Dioxus.toml.example) stays generic (`com.example.demo`); `make sync-bundle-id` (via `make *-demo`) writes a gitignored root `Dioxus.toml` for `dx` (required because the demo is a Cargo example of the root package). Package and Firebase options are parameterized from a local `.env` — `cp .env.example .env` and choose a mode.
 
@@ -22,7 +22,7 @@ Set `FIREBASE_API_KEY`, `FIREBASE_APP_ID` (platform-matched `…:android:…` or
 
 Checklist:
 
-- Enable Email / Google under Authentication in the Firebase Console
+- Enable Email / Google / Apple under Authentication in the Firebase Console. Apple also needs a grouped App ID and Services ID — [Apple sign-in](apple-sign-in.md)
 - Android: add the **built APK’s** SHA-1 (`apksigner verify --print-certs …/app-debug.apk`) on the Android app that matches `FIREBASE_APP_ID` / `ANDROID_APPLICATION_ID` (`dx` may not use `~/.android/debug.keystore`)
 - Empty `ANDROID_APPLICATION_ID` + `make android-demo` / `make ios-demo` restores the default package for Maestro / CI. Maestro flows use `appId: ${ANDROID_APPLICATION_ID}` (passed by `make maestro`); do not put a package name in `.maestro/*.yaml`
 

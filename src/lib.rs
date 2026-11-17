@@ -10,8 +10,7 @@
 //! (`invalid-credential`, `email-already-in-use`, …) — map them to PT-BR (or
 //! other) copy in the app.
 //!
-//! JusFine dogfoods this crate for email/password and Google auth.
-//! Apple Sign-In is implemented but not exported yet (blocked — re-enable later).
+//! JusFine dogfoods this crate for email/password, Google, and Apple auth.
 
 mod auth;
 mod config;
@@ -25,20 +24,10 @@ mod test_support;
 mod user;
 
 pub use auth::{
-    create_user_with_email_and_password,
-    current_user,
-    get_id_token,
-    link_with_google,
-    send_password_reset_email,
-    sign_in_with_email_and_password,
-    sign_in_with_google,
-    sign_out,
-    unlink,
-    update_display_name,
-    update_photo_url,
-    use_auth_emulator,
-    // Apple Sign-In blocked for now — re-enable when Console + OAuth are ready.
-    // link_with_apple, sign_in_with_apple,
+    create_user_with_email_and_password, current_user, get_id_token, link_with_apple,
+    link_with_google, send_password_reset_email, sign_in_with_apple,
+    sign_in_with_email_and_password, sign_in_with_google, sign_out, unlink, update_display_name,
+    update_photo_url, use_auth_emulator,
 };
 pub use config::FirebaseOptions;
 pub use error::FirebaseError;
@@ -49,28 +38,11 @@ pub use user::{User, UserInfo};
 /// Convenient re-exports for application crates.
 pub mod prelude {
     pub use crate::{
-        auth_state_changes,
-        create_user_with_email_and_password,
-        current_user,
-        get_id_token,
-        initialize_app,
-        is_initialized,
-        link_with_google,
-        send_password_reset_email,
-        sign_in_with_email_and_password,
-        sign_in_with_google,
-        sign_out,
-        unlink,
-        update_display_name,
-        update_photo_url,
-        use_auth_emulator,
-        AuthStateSubscription,
-        FirebaseError,
-        FirebaseOptions,
-        User,
-        UserInfo,
-        // Apple Sign-In blocked for now — re-enable when Console + OAuth are ready.
-        // link_with_apple, sign_in_with_apple,
+        auth_state_changes, create_user_with_email_and_password, current_user, get_id_token,
+        initialize_app, is_initialized, link_with_apple, link_with_google,
+        send_password_reset_email, sign_in_with_apple, sign_in_with_email_and_password,
+        sign_in_with_google, sign_out, unlink, update_display_name, update_photo_url,
+        use_auth_emulator, AuthStateSubscription, FirebaseError, FirebaseOptions, User, UserInfo,
     };
 }
 
