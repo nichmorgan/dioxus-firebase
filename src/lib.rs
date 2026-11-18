@@ -10,7 +10,9 @@
 //! (`invalid-credential`, `email-already-in-use`, …) — map them to PT-BR (or
 //! other) copy in the app.
 //!
-//! JusFine dogfoods this crate for email/password, Google, and Apple auth.
+//! The public API follows FlutterFire `firebase_auth`. The repository README
+//! maps each call to the Dart name, lists what is not wrapped, and describes
+//! the extras. Host names and platform notes are in `docs/flutterfire.md`.
 
 mod auth;
 mod config;

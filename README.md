@@ -4,11 +4,43 @@
 
 **Mobile only for now** (iOS and Android). Web and desktop return `UnsupportedPlatform`.
 
-This crate is **not affiliated** with Google / Firebase. [JusFine](https://github.com/nichmorgan/jusfine-ui-dioxus) dogfoods it for production auth.
+This crate is **not affiliated** with Google / Firebase.
 
-## Status
+## FlutterFire
 
-Early — email/password plus Google and Apple sign-in/link/unlink, profile display name / photo URL. No phone auth, email verification, or custom claims.
+Inspired by [FlutterFire](https://github.com/firebase/flutterfire) `firebase_auth`. Platform paths follow those hosts. An extra exists only when an app cannot get the same result by calling the public API. Host names and platform notes: [docs/flutterfire.md](docs/flutterfire.md).
+
+| Rust | Dart |
+| -- | -- |
+| `initialize_app` | `Firebase.initializeApp` |
+| `sign_in_with_email_and_password` | `FirebaseAuth.signInWithEmailAndPassword` |
+| `create_user_with_email_and_password` | `FirebaseAuth.createUserWithEmailAndPassword` |
+| `update_display_name` | `User.updateDisplayName` |
+| `update_photo_url` | `User.updatePhotoURL` |
+| `send_password_reset_email` | `FirebaseAuth.sendPasswordResetEmail` |
+| `sign_out` | `FirebaseAuth.signOut` |
+| `current_user` | `FirebaseAuth.currentUser` |
+| `get_id_token` | `User.getIdToken` |
+| `use_auth_emulator` | `FirebaseAuth.useAuthEmulator` |
+| `auth_state_changes` | `FirebaseAuth.authStateChanges` |
+| `unlink` | `User.unlink` |
+| `sign_in_with_google` | `FirebaseAuth.signInWithProvider(GoogleAuthProvider())` |
+| `link_with_google` | `User.linkWithProvider(GoogleAuthProvider())` |
+| `sign_in_with_apple` | `FirebaseAuth.signInWithProvider(AppleAuthProvider())` |
+| `link_with_apple` | `User.linkWithProvider(AppleAuthProvider())` |
+
+Not wrapped: anonymous and custom-token sign-in, email-link sign-in, credential and reauthenticate APIs, email verification, email or password update, user delete and reload, action codes, phone auth, multi-factor, `idTokenChanges` and `userChanges`, other identity providers, and Apple authorization-code revoke.
+
+Extras:
+
+- `FirebaseOptions.google_web_client_id` — Google server client id, passed at init.
+- `sign_in_with_google` and `link_with_google` — a fixed Google sheet instead of `signInWithProvider`.
+- `sign_in_with_apple` and `link_with_apple` — a fixed Apple sheet. A second iOS call while one is up returns `operation-not-allowed`.
+- Android copies a blank Apple `displayName` from the OAuth profile once. Apple sends that name only on the first authorization.
+- `sign_out` also clears Android Credential Manager (best-effort) and iOS `GIDSignIn`.
+- `is_initialized` — a local guard. FlutterFire does not expose one.
+
+Link collisions return `credential-already-in-use` or `account-exists-with-different-credential`. The host does not sign in with the other account. Signed-out link, unlink, and profile updates return `no-current-user`.
 
 ## Architecture
 
@@ -81,6 +113,7 @@ Emulator vs live `.env` modes, Maestro, and CI: [docs/demo-and-maestro.md](docs/
 | [Demo and Maestro](docs/demo-and-maestro.md) | `.env`, `make *-demo`, UI suite |
 | [Testing](docs/testing.md) | `cargo test`, `cross`, iOS sim |
 | [Wire protocol](docs/wire-protocol.md) | `User` encoding (`\x1f`) |
+| [FlutterFire](docs/flutterfire.md) | Host names, gaps, extras |
 
 Index: [docs/README.md](docs/README.md).
 

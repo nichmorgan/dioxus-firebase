@@ -312,7 +312,9 @@ mod tests {
     #[case("credential-already-in-use", "In use")]
     #[case("provider-already-linked", "Linked")]
     #[case("no-such-provider", "Missing")]
+    #[case("no-current-user", "No user currently signed in.")]
     #[case("requires-recent-login", "Sign in again")]
+    #[case("operation-not-allowed", "A Sign in with Apple request is already in progress.")]
     fn test_parse_error_codes(#[case] expected_code: &str, #[case] expected_msg: &str) {
         let raw = err_reply(expected_code, expected_msg);
         let err = parse_void(&raw).unwrap_err();

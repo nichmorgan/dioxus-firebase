@@ -26,8 +26,9 @@ Failures return `FirebaseError::AuthException { code, message }`:
 - `web-context-already-presented` — Android Custom Tab was torn down, often because the app Activity sets `android:taskAffinity=""`
 - `canceled` — iOS user dismissed the Apple sheet (`ASAuthorizationError.canceled`; FlutterFire reports this as `canceled`). Google sheet dismiss uses the same code.
 - `unavailable` — missing Activity (Android), or the Apple identity token / presentation failed (iOS)
-- `requires-recent-login` — `link_with_apple` while signed out
-- `credential-already-in-use` / `account-exists-with-different-credential` — Firebase collision codes, passed through
+- `no-current-user` — `link_with_apple` while signed out
+- `operation-not-allowed` — a second iOS Apple sign-in or link while a sheet is already up
+- `credential-already-in-use` / `account-exists-with-different-credential` — Firebase collision codes, passed through. The host does not sign in with an updated credential.
 - `provider-already-linked` / `no-such-provider` — link or unlink of a provider that is already linked, or not linked
 
 Desktop and web: `initialize_app` returns `UnsupportedPlatform`. Calling a primitive before `initialize_app` returns `NotInitialized`.
@@ -47,13 +48,15 @@ Dart `signInWithProvider(AppleAuthProvider())` is one API. The native plugins di
 
 ### Android
 
-The Kotlin host builds `OAuthProvider("apple.com")` with scopes `email` and `name`, recovers `pendingAuthResult` (Custom Tabs can background the Activity), then calls `startActivityForSignInWithProvider` or `startActivityForLinkWithProvider`. That is the web Services ID flow. No extra Rust option is required beyond a configured Firebase project.
+The Kotlin host builds `OAuthProvider("apple.com")` with scopes `email` and `name`, then calls `startActivityForSignInWithProvider` or `startActivityForLinkWithProvider`. That is the web Services ID flow. No extra Rust option is required beyond a configured Firebase project.
+
+Apple only shares the user’s **name** (and sometimes email) with the app on the **first** authorization for that Services ID. Later Connect / sign-in calls return the same Firebase uid without a name. Firebase usually stores `displayName` on that first sign-in; the host also copies a name from `AdditionalUserInfo.profile` into the profile when Firebase left it blank. If the first Android Custom Tab auth never received a name (or you signed in before Firebase was configured), Apple will not send it again until the user revokes Sign in with Apple for the app (device Settings → Apple Account → Sign in with Apple → Stop Using) and Connects again as a fresh authorization. There is no Android API equivalent of iOS `appleCredential(…, fullName:)` for the Custom Tab flow.
 
 This crate’s manifest does not set `android:taskAffinity`. The **app** Activity must not set `android:taskAffinity=""` either. That value closes the Custom Tab when the user leaves it (for example to a password manager) and Firebase returns `web-context-already-presented`.
 
 ### iOS
 
-Firebase Auth 11.15 `OAuthProvider(providerID: "apple.com")` calls `fatalError` unless the Auth emulator is set. The message says to use the Apple SDK. FlutterFire’s iOS plugin does that: `ASAuthorizationAppleIDProvider`, scopes email and name, a SHA-256 nonce, then `OAuthProvider.appleCredential(withIDToken:rawNonce:fullName:)` and `signIn(with:)` / `link(with:)`. The Swift host does the same. That credential applies the first-sign-in name. A generic `signIn(with: provider)` call is not used.
+Firebase Auth 11.15 `OAuthProvider(providerID: "apple.com")` calls `fatalError` unless the Auth emulator is set. The message says to use the Apple SDK. FlutterFire’s iOS plugin does that: `ASAuthorizationAppleIDProvider`, scopes email and name, a SHA-256 nonce, then `OAuthProvider.appleCredential(withIDToken:rawNonce:fullName:)` and `signIn(with:)` / `link(with:)`. The Swift host does the same. That credential applies the first-sign-in name. A generic `signIn(with: provider)` call is not used. A second `sign_in_with_apple` or `link_with_apple` while that sheet is up returns `operation-not-allowed`.
 
 The app’s provisioning profile must include the Sign in with Apple capability. A simulator `dx` build without `--codesign` only sees entitlements embedded in the Mach-O `__TEXT,__entitlements` section. The demo embeds `com.apple.developer.applesignin` = `Default` there for `target_abi = "sim"` ([`examples/demo-simulator.entitlements`](../examples/demo-simulator.entitlements)). Device builds are codesigned by `dx --device` and omit that section. This crate does not inject device entitlements; the capability belongs on the app profile. The placeholder team id `DEMOTEAMID` in the demo plist is not a real Apple Team ID.
 
@@ -72,10 +75,10 @@ Apple’s user identifier (`sub`) is scoped to the client. An ungrouped App ID a
 
 Live project only (`FIREBASE_USE_AUTH_EMULATOR=0`). Maestro stays on email/emulator and does not drive the Apple tile. Serve with `make android-demo` or `make ios-demo` after the Console steps above.
 
-1. Android: open the Apple tile, tap Sign in with Apple. Status shows `Signed in with Apple: <uid> (apple.com)`.
-2. Sign out. On iOS, sign in with the same Apple ID. The uid matches step 1.
+1. Android: open the Apple tile, tap Connect to Apple. Status shows `Connected to Apple: <uid> (apple.com)`.
+2. Sign out. On iOS, Connect to Apple with the same Apple ID. The uid matches step 1.
 3. Reverse the order: iOS first, then Android, same Apple ID, same uid.
-4. Email sign-up, then Link Apple. Account shows `apple.com` and `password`. Sign out. Sign in with Apple on the other platform. The uid matches the email user.
+4. Email sign-up, then Connect to Apple. Account shows `apple.com` and `password`. Sign out. Connect to Apple on the other platform. The uid matches the email user.
 
 Linking details: [Errors and linking](errors-and-linking.md).
 

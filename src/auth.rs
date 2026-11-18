@@ -75,8 +75,8 @@ pub fn get_id_token(force_refresh: bool) -> Result<Option<String>, FirebaseError
 
 /// Point Auth at the local Emulator Suite (`useAuthEmulator`).
 ///
-/// Call after [`crate::initialize_app`]. JusFine may keep using staging cloud in
-/// debug builds and adopt the emulator later.
+/// Call after [`crate::initialize_app`]. An app may keep using cloud Auth in
+/// debug builds and point at the emulator later.
 pub fn use_auth_emulator(host: impl AsRef<str>, port: u16) -> Result<(), FirebaseError> {
     require_initialized()?;
     let host = host.as_ref().trim();

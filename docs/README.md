@@ -13,3 +13,4 @@ Guides for integrating and developing [dioxus-firebase](../README.md).
 | [Demo and Maestro](demo-and-maestro.md) | `.env`, `make *-demo`, UI suite |
 | [Testing](testing.md) | `cargo test`, `cross`, iOS sim |
 | [Wire protocol](wire-protocol.md) | `User` encoding (`\x1f`) |
+| [FlutterFire](flutterfire.md) | Host names, gaps, extras |

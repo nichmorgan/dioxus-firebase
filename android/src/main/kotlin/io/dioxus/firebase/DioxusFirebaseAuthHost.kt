@@ -25,6 +25,7 @@ import com.google.android.libraries.identity.googleid.GoogleIdTokenCredential
 import com.google.firebase.FirebaseApp
 import com.google.firebase.FirebaseOptions
 import com.google.firebase.auth.AuthCredential
+import com.google.firebase.auth.AuthResult
 import com.google.firebase.auth.FirebaseAuth
 import com.google.firebase.auth.FirebaseAuthException
 import com.google.firebase.auth.FirebaseUser
@@ -53,7 +54,8 @@ import java.util.concurrent.atomic.AtomicReference
  */
 object DioxusFirebaseAuthHost {
     private const val UNIT = '\u001f'
-    private const val TASK_TIMEOUT_SECONDS = 60L
+    /** Custom Tabs / Apple sheets need longer than email password ops. */
+    private const val TASK_TIMEOUT_SECONDS = 300L
     private val subscribed = AtomicBoolean(false)
     private val activityRef = AtomicReference<WeakReference<Activity>?>(null)
     @Volatile
@@ -184,7 +186,7 @@ object DioxusFirebaseAuthHost {
     /** Unlink a provider id (e.g. `google.com`). Prefer unlink then link to change store identity. */
     @JvmStatic
     fun unlink(providerId: String): String {
-        val user = auth.currentUser ?: return err("requires-recent-login", "no current user")
+        val user = auth.currentUser ?: return noCurrentUser()
         val id = providerId.trim()
         if (id.isEmpty()) {
             return err("invalid-argument", "provider_id must not be empty")
@@ -223,19 +225,13 @@ object DioxusFirebaseAuthHost {
             .setScopes(listOf("email", "name"))
             .build()
         return try {
-            // Custom Tabs background the Activity; recover a completed OAuth result
-            // before starting a new flow (Firebase Auth Android Apple docs).
-            val pending = auth.pendingAuthResult
-            val task = if (pending != null) {
-                pending
-            } else if (link) {
-                val user = auth.currentUser
-                    ?: return err("requires-recent-login", "no current user")
+            val task = if (link) {
+                val user = auth.currentUser ?: return noCurrentUser()
                 user.startActivityForLinkWithProvider(activity, provider)
             } else {
                 auth.startActivityForSignInWithProvider(activity, provider)
             }
-            awaitTask({ task }) { okUser(it.user) }
+            awaitAuthResult(task)
         } catch (t: Throwable) {
             mapThrowable(t)
         }
@@ -272,12 +268,48 @@ object DioxusFirebaseAuthHost {
 
     private fun applyCredential(credential: AuthCredential, link: Boolean): String {
         return if (link) {
-            val user = auth.currentUser
-                ?: return err("requires-recent-login", "no current user")
-            awaitTask({ user.linkWithCredential(credential) }) { okUser(it.user) }
+            val user = auth.currentUser ?: return noCurrentUser()
+            awaitAuthResult(user.linkWithCredential(credential))
         } else {
             awaitTask({ auth.signInWithCredential(credential) }) { okUser(it.user) }
         }
+    }
+
+    /** Await an AuthResult task. Link collisions surface as Firebase wire codes. */
+    private fun awaitAuthResult(task: Task<AuthResult>): String {
+        if (Looper.myLooper() == Looper.getMainLooper()) {
+            return err("native", "Firebase Auth waits must not run on the main looper; use spawn_blocking")
+        }
+        return try {
+            finalizeAuthUser(Tasks.await(task, TASK_TIMEOUT_SECONDS, TimeUnit.SECONDS))
+        } catch (t: Throwable) {
+            mapThrowable(t)
+        }
+    }
+
+    /**
+     * Prefer Firebase's stored display name. On first Apple auth, AdditionalUserInfo
+     * may carry a name Firebase did not copy — apply it once via updateProfile.
+     * Apple only shares the name on the first authorization for that Services ID.
+     */
+    private fun finalizeAuthUser(result: AuthResult): String {
+        val user = result.user ?: return ok()
+        val profileName = AppleProfileName.from(result.additionalUserInfo?.profile)
+        if (user.displayName.isNullOrBlank() && !profileName.isNullOrBlank()) {
+            try {
+                Tasks.await(
+                    user.updateProfile(
+                        UserProfileChangeRequest.Builder().setDisplayName(profileName).build(),
+                    ),
+                    TASK_TIMEOUT_SECONDS,
+                    TimeUnit.SECONDS,
+                )
+                Tasks.await(user.reload(), TASK_TIMEOUT_SECONDS, TimeUnit.SECONDS)
+            } catch (_: Throwable) {
+                // Best-effort; still return the signed-in user.
+            }
+        }
+        return okUser(auth.currentUser ?: user)
     }
 
     private fun requireActivity(): Activity? = activityRef.get()?.get()
@@ -461,7 +493,7 @@ object DioxusFirebaseAuthHost {
     }
 
     private fun updateProfile(displayName: String?, photoUrl: String?): String {
-        val user = auth.currentUser ?: return err("requires-recent-login", "no current user")
+        val user = auth.currentUser ?: return noCurrentUser()
         val builder = UserProfileChangeRequest.Builder()
         if (displayName != null) {
             builder.setDisplayName(displayName)
@@ -480,6 +512,9 @@ object DioxusFirebaseAuthHost {
             user.reload()
         }) { ok() }
     }
+
+    private fun noCurrentUser(): String =
+        err("no-current-user", "No user currently signed in.")
 
     private fun err(code: String, message: String): String =
         "ERR$UNIT$code$UNIT$message"

@@ -13,7 +13,9 @@ Failures return `FirebaseError::AuthException { code, message }` with Firebase-s
 - `credential-already-in-use`
 - `provider-already-linked`
 - `no-such-provider` (unlink of a provider that is not linked)
+- `no-current-user` (link, unlink, or profile update while signed out)
 - `requires-recent-login` (sensitive op needs a fresh sign-in)
+- `operation-not-allowed` (a second iOS Apple sign-in or link while a sheet is already up)
 - `canceled` (user dismissed the Google sheet, or the iOS Apple sheet)
 - `web-context-canceled` (user dismissed the Android Apple Custom Tab)
 - `web-context-already-presented` (Android Apple Custom Tab closed early; often `android:taskAffinity=""`)

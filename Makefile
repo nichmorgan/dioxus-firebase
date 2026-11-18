@@ -1,6 +1,10 @@
 PROJECT := demo-project
 FIREBASE := npx -y firebase-tools
 DEFAULT_ANDROID_APPLICATION_ID := com.example.demo
+# Optional: make android-demo DEVICE=emulator-5554  or  make ios-demo DEVICE="iPhone 16"
+DEVICE ?=
+
+DEVICE_FLAG := $(if $(strip $(DEVICE)),--device "$(DEVICE)",)
 
 # A process already bound to 9099 has accounts. Stop it so the next start is empty.
 # No --import and no --export-on-exit: nothing is read from or written to disk.
@@ -22,10 +26,10 @@ sync-bundle-id:
 # Sync package from .env into local Dioxus.toml, then serve the demo
 # (live Google needs ANDROID_APPLICATION_ID set).
 android-demo: sync-bundle-id
-	dx serve --example demo --platform android
+	dx serve --example demo --platform android $(DEVICE_FLAG)
 
 ios-demo: sync-bundle-id
-	dx serve --example demo --platform ios
+	dx serve --example demo --platform ios $(DEVICE_FLAG)
 
 emulator:
 	@$(stop_auth_emulator)
