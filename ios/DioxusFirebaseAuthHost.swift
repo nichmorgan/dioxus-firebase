@@ -287,7 +287,10 @@ public class DioxusFirebaseAuthHost: NSObject {
                         finish(err("invalid-credential", "Google ID token missing"))
                         return
                     }
-                    let accessToken = result?.user.accessToken.tokenString
+                    guard let accessToken = result?.user.accessToken.tokenString, !accessToken.isEmpty else {
+                        finish(err("invalid-credential", "Google access token missing"))
+                        return
+                    }
                     let credential = GoogleAuthProvider.credential(
                         withIDToken: idToken,
                         accessToken: accessToken
