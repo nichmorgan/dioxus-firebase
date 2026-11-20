@@ -66,14 +66,10 @@ pub(crate) fn unlink(_provider_id: &str) -> Result<User, FirebaseError> {
     Err(FirebaseError::UnsupportedPlatform)
 }
 
-// Apple Sign-In blocked for now — re-enable when Console + OAuth are ready.
-#[allow(dead_code)]
 pub(crate) fn sign_in_with_apple() -> Result<User, FirebaseError> {
     Err(FirebaseError::UnsupportedPlatform)
 }
 
-// Apple Sign-In blocked for now — re-enable when Console + OAuth are ready.
-#[allow(dead_code)]
 pub(crate) fn link_with_apple() -> Result<User, FirebaseError> {
     Err(FirebaseError::UnsupportedPlatform)
 }

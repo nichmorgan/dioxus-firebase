@@ -102,8 +102,7 @@ enum Screen {
     Home,
     Email,
     Google,
-    // Apple Sign-In blocked for now — re-enable when Console + OAuth are ready.
-    // Apple,
+    Apple,
     Account,
 }
 
@@ -171,6 +170,68 @@ fn provider_ids_joined(user: &User, sep: &str) -> String {
         .map(|p| p.provider_id.as_str())
         .collect::<Vec<_>>()
         .join(sep)
+}
+
+fn user_has_provider(user: &User, provider_id: &str) -> bool {
+    user.provider_data
+        .iter()
+        .any(|p| p.provider_id == provider_id)
+}
+
+fn nonempty(value: &Option<String>) -> Option<String> {
+    value
+        .as_ref()
+        .map(|s| s.trim().to_string())
+        .filter(|s| !s.is_empty())
+}
+
+/// Display name from the current Google or Apple session, if any.
+fn store_display_name() -> Option<String> {
+    let user = current_user().ok().flatten()?;
+    let store = user.provider_data.iter().find(|p| {
+        matches!(p.provider_id.as_str(), "google.com" | "apple.com")
+    })?;
+    nonempty(&store.display_name).or_else(|| nonempty(&user.display_name))
+}
+
+/// After an email sign-in/up that replaced a store session, keep that store name.
+fn apply_store_display_name(user: User, store_name: Option<String>) -> Result<User, FirebaseError> {
+    let Some(name) = store_name.filter(|n| !n.is_empty()) else {
+        return Ok(user);
+    };
+    if nonempty(&user.display_name).as_deref() == Some(name.as_str()) {
+        return Ok(user);
+    }
+    update_display_name(&name)?;
+    Ok(current_user()?.unwrap_or(user))
+}
+
+/// Connect: one provider sheet.
+/// - Already has that provider → unlink then link (switch identity, same uid).
+/// - Otherwise → sign in (create/switch Firebase session; avoids a second sheet
+///   after credential-already-in-use from a failed link).
+fn connect_google() -> Result<User, FirebaseError> {
+    match current_user()? {
+        Some(user) if user_has_provider(&user, "google.com") => {
+            unlink("google.com")?;
+            link_with_google()
+        }
+        _ => sign_in_with_google(),
+    }
+}
+
+/// Connect: one provider sheet.
+/// - Already has that provider → unlink then link (switch identity, same uid).
+/// - Otherwise → sign in (create/switch Firebase session; avoids a second sheet
+///   after credential-already-in-use from a failed link).
+fn connect_apple() -> Result<User, FirebaseError> {
+    match current_user()? {
+        Some(user) if user_has_provider(&user, "apple.com") => {
+            unlink("apple.com")?;
+            link_with_apple()
+        }
+        _ => sign_in_with_apple(),
+    }
 }
 
 /// Run a blocking Auth call off the UI thread, then apply the result on the Dioxus runtime.
@@ -295,12 +356,11 @@ fn app() -> Element {
                         onclick: move |_| screen.set(Screen::Google),
                         "Google"
                     }
-                    // Apple Sign-In blocked for now — re-enable when Console + OAuth are ready.
-                    // button {
-                    //     class: "tile",
-                    //     onclick: move |_| screen.set(Screen::Apple),
-                    //     "Apple"
-                    // }
+                    button {
+                        class: "tile",
+                        onclick: move |_| screen.set(Screen::Apple),
+                        "Apple"
+                    }
                     button {
                         class: "tile",
                         onclick: move |_| screen.set(Screen::Account),
@@ -324,17 +384,17 @@ fn app() -> Element {
                     "Back"
                 }
                 h1 { "Google" }
-                {google_body(auth_state, status_message, screen)}
+                {google_body(status_message, screen)}
             },
-            // Screen::Apple => rsx! {
-            //     button {
-            //         class: "back",
-            //         onclick: move |_| screen.set(Screen::Home),
-            //         "Back"
-            //     }
-            //     h1 { "Apple" }
-            //     {apple_body(auth_state, status_message, screen)}
-            // },
+            Screen::Apple => rsx! {
+                button {
+                    class: "back",
+                    onclick: move |_| screen.set(Screen::Home),
+                    "Back"
+                }
+                h1 { "Apple" }
+                {apple_body(status_message, screen)}
+            },
             Screen::Account => rsx! {
                 button {
                     class: "back",
@@ -376,7 +436,11 @@ fn email_body(
                         let email = email.read().clone();
                         let password = password.read().clone();
                         spawn_auth(
-                            move || sign_in_with_email_and_password(email, password),
+                            move || {
+                                let store_name = store_display_name();
+                                sign_in_with_email_and_password(email, password)
+                                    .and_then(|user| apply_store_display_name(user, store_name))
+                            },
                             move |result| match result {
                                 Ok(user) => {
                                     status_message.set(format!("Signed in user: {}", user.uid));
@@ -395,7 +459,11 @@ fn email_body(
                         let email = email.read().clone();
                         let password = password.read().clone();
                         spawn_auth(
-                            move || create_user_with_email_and_password(email, password),
+                            move || {
+                                let store_name = store_display_name();
+                                create_user_with_email_and_password(email, password)
+                                    .and_then(|user| apply_store_display_name(user, store_name))
+                            },
                             move |result| match result {
                                 Ok(user) => {
                                     status_message.set(format!("Created user: {}", user.uid));
@@ -464,11 +532,9 @@ fn live_google_config_gap() -> Option<String> {
 }
 
 fn google_body(
-    auth_state: Signal<AuthState>,
     mut status_message: Signal<String>,
     mut screen: Signal<Screen>,
 ) -> Element {
-    let signed_in = matches!(auth_state(), AuthState::SignedIn(_));
     let config_gap = live_google_config_gap();
     let blocked = config_gap.is_some();
     let blocked_title = config_gap.clone().unwrap_or_default();
@@ -485,117 +551,59 @@ fn google_body(
     rsx! {
         div { class: "panel",
             button {
-                id: "sign-in-google",
+                id: "connect-google",
                 class: "btn btn-google",
                 disabled: blocked,
                 title: "{blocked_title}",
                 onclick: move |_| {
-                    spawn_auth(
-                        sign_in_with_google,
-                        move |result| match result {
-                            Ok(user) => {
-                                status_message
-                                    .set(
-                                        format!(
-                                            "Signed in with Google: {} ({})",
-                                            user.uid,
-                                            provider_ids_joined(&user, ","),
-                                        ),
-                                    );
-                                screen.set(Screen::Account);
-                            }
-                            Err(err) => status_message.set(format!("Google sign-in error: {err}")),
-                        },
-                    );
+                    spawn_auth(connect_google, move |result| match result {
+                        Ok(user) => {
+                            status_message.set(format!(
+                                "Connected to Google: {} ({})",
+                                user.uid,
+                                provider_ids_joined(&user, ","),
+                            ));
+                            screen.set(Screen::Account);
+                        }
+                        Err(err) => status_message.set(format!("Google connect error: {err}")),
+                    });
                 },
-                "Sign in with Google"
+                "Connect to Google"
             }
             if let Some(msg) = config_gap.as_ref() {
                 p { id: "google-config-hint", class: "tip", "{msg}" }
-            }
-            if signed_in {
-                button {
-                    id: "link-google",
-                    class: "btn btn-google",
-                    disabled: blocked,
-                    title: "{blocked_title}",
-                    onclick: move |_| {
-                        spawn_auth(
-                            link_with_google,
-                            move |result| match result {
-                                Ok(user) => {
-                                    status_message
-                                        .set(
-                                            format!("Linked Google: {}", provider_ids_joined(&user, ",")),
-                                        )
-                                }
-                                Err(err) => status_message.set(format!("Link Google error: {err}")),
-                            },
-                        );
-                    },
-                    "Link Google"
-                }
             }
         }
     }
 }
 
-// Apple Sign-In blocked for now — re-enable when Console + OAuth are ready.
-// fn apple_body(
-//     auth_state: Signal<AuthState>,
-//     mut status_message: Signal<String>,
-//     mut screen: Signal<Screen>,
-// ) -> Element {
-//     let signed_in = matches!(auth_state(), AuthState::SignedIn(_));
-//     rsx! {
-//         div { class: "panel",
-//             button {
-//                 id: "sign-in-apple",
-//                 class: "btn btn-apple",
-//                 onclick: move |_| {
-//                     spawn_auth(
-//                         sign_in_with_apple,
-//                         move |result| match result {
-//                             Ok(user) => {
-//                                 status_message.set(format!(
-//                                     "Signed in with Apple: {} ({})",
-//                                     user.uid,
-//                                     provider_ids_joined(&user, ",")
-//                                 ));
-//                                 screen.set(Screen::Account);
-//                             }
-//                             Err(err) => {
-//                                 status_message.set(format!("Apple sign-in error: {err}"))
-//                             }
-//                         },
-//                     );
-//                 },
-//                 "Sign in with Apple"
-//             }
-//             if signed_in {
-//                 button {
-//                     id: "link-apple",
-//                     class: "btn btn-apple",
-//                     onclick: move |_| {
-//                         spawn_auth(
-//                             link_with_apple,
-//                             move |result| match result {
-//                                 Ok(user) => status_message.set(format!(
-//                                     "Linked Apple: {}",
-//                                     provider_ids_joined(&user, ",")
-//                                 )),
-//                                 Err(err) => {
-//                                     status_message.set(format!("Link Apple error: {err}"))
-//                                 }
-//                             },
-//                         );
-//                     },
-//                     "Link Apple"
-//                 }
-//             }
-//         }
-//     }
-// }
+fn apple_body(
+    mut status_message: Signal<String>,
+    mut screen: Signal<Screen>,
+) -> Element {
+    rsx! {
+        div { class: "panel",
+            button {
+                id: "connect-apple",
+                class: "btn btn-apple",
+                onclick: move |_| {
+                    spawn_auth(connect_apple, move |result| match result {
+                        Ok(user) => {
+                            status_message.set(format!(
+                                "Connected to Apple: {} ({})",
+                                user.uid,
+                                provider_ids_joined(&user, ","),
+                            ));
+                            screen.set(Screen::Account);
+                        }
+                        Err(err) => status_message.set(format!("Apple connect error: {err}")),
+                    });
+                },
+                "Connect to Apple"
+            }
+        }
+    }
+}
 
 fn account_body(
     auth_state: Signal<AuthState>,
@@ -607,7 +615,7 @@ fn account_body(
             p { style: "margin: 16px;", "Connecting to Firebase Native Bridge..." }
         },
         AuthState::SignedOut => rsx! {
-            p { style: "margin: 16px;", "Sign in from Email or Google to manage your account." }
+            p { style: "margin: 16px;", "Sign in from Email, Google, or Apple to manage your account." }
         },
         AuthState::SignedIn(user) => {
             let uid = user.uid.clone();

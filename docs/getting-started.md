@@ -45,4 +45,4 @@ Google Console / SHA-1 setup: [Google sign-in](google-sign-in.md).
 
 Firebase Auth stores the signed-in user in the keychain. A `dx` simulator build without `--codesign` has no `application-identifier` or `keychain-access-groups` entitlement, so sign-in fails with `keychain-error` (`SecItemAdd` -34018). The demo embeds those entitlements in the simulator binary ([`examples/demo-simulator.entitlements`](../examples/demo-simulator.entitlements), section `__TEXT,__entitlements`). Apps should do the same, or build with `--codesign` and an Apple Development identity. This crate does not inject the section; entitlements belong to the app.
 
-Google URL schemes and open-URL forwarding: [Google sign-in](google-sign-in.md).
+Google URL schemes and open-URL forwarding: [Google sign-in](google-sign-in.md). Sign in with Apple, including the simulator `com.apple.developer.applesignin` entitlement: [Apple sign-in](apple-sign-in.md).

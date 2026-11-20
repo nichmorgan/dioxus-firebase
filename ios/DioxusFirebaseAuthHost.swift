@@ -24,11 +24,14 @@ import GoogleSignIn
 @objc(DioxusFirebaseAuthHost)
 public class DioxusFirebaseAuthHost: NSObject {
     private static let unit: Character = "\u{1f}"
-    private static let waitTimeout: TimeInterval = 60
+    /// Custom Tabs / Apple sheets need longer than email password ops.
+    private static let waitTimeout: TimeInterval = 300
     private static let subscribeLock = NSLock()
     private static var authListenerHandle: AuthStateDidChangeListenerHandle?
     private static var rustCallback: (@convention(c) (UnsafePointer<CChar>?) -> Void)?
     private static var googleWebClientId: String = ""
+    private static let appleLock = NSLock()
+    private static var appleSignInRequestInFlight = false
     private static var appleCoordinator: AppleSignInCoordinator?
 
     /// Default Firebase app (re-read each time; do not cache).
@@ -212,7 +215,7 @@ public class DioxusFirebaseAuthHost: NSObject {
     @objc(unlink:)
     public static func unlink(_ providerId: String) -> String {
         guard let user = auth.currentUser else {
-            return err("requires-recent-login", "no current user")
+            return err("no-current-user", "No user currently signed in.")
         }
         let id = providerId.trimmingCharacters(in: .whitespacesAndNewlines)
         if id.isEmpty {
@@ -274,7 +277,7 @@ public class DioxusFirebaseAuthHost: NSObject {
                 GIDSignIn.sharedInstance.signIn(withPresenting: presenter) { result, error in
                     if let error = error as NSError? {
                         if error.code == GIDSignInError.canceled.rawValue {
-                            finish(err("cancelled", error.localizedDescription))
+                            finish(err("canceled", error.localizedDescription))
                         } else {
                             finish(err("unavailable", error.localizedDescription))
                         }
@@ -295,23 +298,43 @@ public class DioxusFirebaseAuthHost: NSObject {
         }
     }
 
+    /// FlutterFire iOS `signInWithProvider(AppleAuthProvider)` is this path, not
+    /// `OAuthProvider(providerID: "apple.com")`. Firebase Auth 11.15 fatalErrors
+    /// that initializer unless the Auth emulator is set, and tells you to use
+    /// the Apple SDK. Scopes are `email` and `name`, matching FlutterFire.
     private static func signInOrLinkWithApple(link: Bool) -> String {
         if Thread.isMainThread {
             return err("native", "Firebase Auth waits must not run on the main thread; use spawn_blocking")
         }
+        if link && auth.currentUser == nil {
+            return err("no-current-user", "No user currently signed in.")
+        }
+        appleLock.lock()
+        if appleSignInRequestInFlight {
+            appleLock.unlock()
+            return err(
+                "operation-not-allowed",
+                "A Sign in with Apple request is already in progress."
+            )
+        }
+        appleSignInRequestInFlight = true
+        appleLock.unlock()
         return awaitReply { finish in
             DispatchQueue.main.async {
                 guard let rawNonce = randomNonceString() else {
+                    clearAppleInFlight()
                     finish(err("native", "failed to generate Apple sign-in nonce"))
                     return
                 }
                 let hashed = sha256(rawNonce)
-                let coordinator = AppleSignInCoordinator(rawNonce: rawNonce) { outcome in
+                let coordinator = AppleSignInCoordinator { outcome in
                     appleCoordinator = nil
                     switch outcome {
-                    case .cancelled:
-                        finish(err("cancelled", "user cancelled Apple sign-in"))
+                    case .canceled:
+                        clearAppleInFlight()
+                        finish(err("canceled", "user canceled Apple sign-in"))
                     case .failed(let message):
+                        clearAppleInFlight()
                         finish(err("unavailable", message))
                     case .success(let appleIdToken, let fullName):
                         let credential = OAuthProvider.appleCredential(
@@ -319,13 +342,24 @@ public class DioxusFirebaseAuthHost: NSObject {
                             rawNonce: rawNonce,
                             fullName: fullName
                         )
-                        applyCredential(credential, link: link, finish: finish)
+                        applyCredential(credential, link: link) { reply in
+                            clearAppleInFlight()
+                            finish(reply)
+                        }
                     }
                 }
                 appleCoordinator = coordinator
                 coordinator.start(hashedNonce: hashed)
             }
         }
+    }
+
+    /// Clears the in-flight flag. Call after the coordinator is released so a
+    /// second sheet cannot start against the coordinator that just finished.
+    private static func clearAppleInFlight() {
+        appleLock.lock()
+        appleSignInRequestInFlight = false
+        appleLock.unlock()
     }
 
     private static func applyCredential(
@@ -335,7 +369,7 @@ public class DioxusFirebaseAuthHost: NSObject {
     ) {
         if link {
             guard let user = auth.currentUser else {
-                finish(err("requires-recent-login", "no current user"))
+                finish(err("no-current-user", "No user currently signed in."))
                 return
             }
             user.link(with: credential) { result, error in
@@ -443,7 +477,7 @@ public class DioxusFirebaseAuthHost: NSObject {
 
     private static func updateProfile(displayName: String?, photoURL: String?) -> String {
         guard let user = auth.currentUser else {
-            return err("requires-recent-login", "no current user")
+            return err("no-current-user", "No user currently signed in.")
         }
         let change = user.createProfileChangeRequest()
         if let displayName = displayName {
@@ -636,21 +670,22 @@ public class DioxusFirebaseAuthHost: NSObject {
 }
 
 // MARK: - Apple Sign In coordinator
+//
+// Same shape as FlutterFire `launchAppleSignInRequest`: hashed nonce, email
+// and name scopes, then `OAuthProvider.appleCredential`.
 
 private final class AppleSignInCoordinator: NSObject, ASAuthorizationControllerDelegate,
     ASAuthorizationControllerPresentationContextProviding
 {
     enum Outcome {
         case success(idToken: String, fullName: PersonNameComponents?)
-        case cancelled
+        case canceled
         case failed(String)
     }
 
-    private let rawNonce: String
     private let completion: (Outcome) -> Void
 
-    init(rawNonce: String, completion: @escaping (Outcome) -> Void) {
-        self.rawNonce = rawNonce
+    init(completion: @escaping (Outcome) -> Void) {
         self.completion = completion
     }
 
@@ -697,7 +732,7 @@ private final class AppleSignInCoordinator: NSObject, ASAuthorizationControllerD
     ) {
         let ns = error as NSError
         if ns.code == ASAuthorizationError.canceled.rawValue {
-            completion(.cancelled)
+            completion(.canceled)
         } else {
             completion(.failed(ns.localizedDescription))
         }

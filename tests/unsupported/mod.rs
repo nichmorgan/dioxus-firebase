@@ -16,10 +16,9 @@ enum Primitive {
     SignInWithEmail,
     CurrentUser,
     SignInWithGoogle,
-    // Apple Sign-In blocked for now — re-enable when Console + OAuth are ready.
-    // SignInWithApple,
+    SignInWithApple,
     LinkWithGoogle,
-    // LinkWithApple,
+    LinkWithApple,
     Unlink,
     UpdatePhotoUrl,
 }
@@ -29,9 +28,9 @@ fn call_primitive(which: Primitive) -> Result<(), FirebaseError> {
         Primitive::SignInWithEmail => sign_in_with_email_and_password("a@b.c", "pass").map(|_| ()),
         Primitive::CurrentUser => current_user().map(|_| ()),
         Primitive::SignInWithGoogle => sign_in_with_google().map(|_| ()),
-        // Primitive::SignInWithApple => sign_in_with_apple().map(|_| ()),
+        Primitive::SignInWithApple => sign_in_with_apple().map(|_| ()),
         Primitive::LinkWithGoogle => link_with_google().map(|_| ()),
-        // Primitive::LinkWithApple => link_with_apple().map(|_| ()),
+        Primitive::LinkWithApple => link_with_apple().map(|_| ()),
         Primitive::Unlink => unlink("google.com").map(|_| ()),
         Primitive::UpdatePhotoUrl => update_photo_url("https://ex/p.png"),
     }
@@ -41,9 +40,9 @@ fn call_primitive(which: Primitive) -> Result<(), FirebaseError> {
 #[case(Primitive::SignInWithEmail)]
 #[case(Primitive::CurrentUser)]
 #[case(Primitive::SignInWithGoogle)]
-// #[case(Primitive::SignInWithApple)]
+#[case(Primitive::SignInWithApple)]
 #[case(Primitive::LinkWithGoogle)]
-// #[case(Primitive::LinkWithApple)]
+#[case(Primitive::LinkWithApple)]
 #[case(Primitive::Unlink)]
 #[case(Primitive::UpdatePhotoUrl)]
 fn test_primitives_require_init_on_desktop(#[case] which: Primitive) {

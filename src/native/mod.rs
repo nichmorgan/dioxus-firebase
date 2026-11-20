@@ -94,14 +94,10 @@ pub(crate) fn unlink(provider_id: &str) -> Result<User, FirebaseError> {
     native_call!(unlink(provider_id))
 }
 
-// Apple Sign-In blocked for now — re-enable when Console + OAuth are ready.
-#[allow(dead_code)]
 pub(crate) fn sign_in_with_apple() -> Result<User, FirebaseError> {
     native_call!(sign_in_with_apple())
 }
 
-// Apple Sign-In blocked for now — re-enable when Console + OAuth are ready.
-#[allow(dead_code)]
 pub(crate) fn link_with_apple() -> Result<User, FirebaseError> {
     native_call!(link_with_apple())
 }
