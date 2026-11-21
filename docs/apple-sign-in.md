@@ -48,7 +48,7 @@ Dart `signInWithProvider(AppleAuthProvider())` is one API. The native plugins di
 
 ### Android
 
-The Kotlin host builds `OAuthProvider("apple.com")` with scopes `email` and `name`, then calls `startActivityForSignInWithProvider` or `startActivityForLinkWithProvider`. That is the web Services ID flow. No extra Rust option is required beyond a configured Firebase project.
+The Kotlin host builds `OAuthProvider("apple.com")` with scopes `email` and `name`, then calls `startActivityForSignInWithProvider` or `startActivityForLinkWithProvider`. That is the web Services ID flow. A link finishes in `GenericIdpActivity` and can leave `currentUser` without `apple.com` in `providerData`, so the host reloads the user before it replies. A failed reload still returns the linked user. No extra Rust option is required beyond a configured Firebase project.
 
 Apple only shares the user’s **name** (and sometimes email) with the app on the **first** authorization for that Services ID. Later Connect / sign-in calls return the same Firebase uid without a name. Firebase usually stores `displayName` on that first sign-in; the host also copies a name from `AdditionalUserInfo.profile` into the profile when Firebase left it blank. If the first Android Custom Tab auth never received a name (or you signed in before Firebase was configured), Apple will not send it again until the user revokes Sign in with Apple for the app (device Settings → Apple Account → Sign in with Apple → Stop Using) and Connects again as a fresh authorization. There is no Android API equivalent of iOS `appleCredential(…, fullName:)` for the Custom Tab flow.
 

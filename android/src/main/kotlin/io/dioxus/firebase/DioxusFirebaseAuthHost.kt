@@ -291,7 +291,9 @@ object DioxusFirebaseAuthHost {
             } else {
                 auth.startActivityForSignInWithProvider(activity, provider)
             }
-            awaitAuthResult(task)
+            // The Custom Tab link finishes in GenericIdpActivity and can leave
+            // currentUser without apple.com in providerData until a reload.
+            awaitAuthResult(task, reloadUser = link)
         } catch (t: Throwable) {
             mapThrowable(t)
         }
@@ -396,12 +398,15 @@ object DioxusFirebaseAuthHost {
     }
 
     /** Await an AuthResult task. Link collisions surface as Firebase wire codes. */
-    private fun awaitAuthResult(task: Task<AuthResult>): String {
+    private fun awaitAuthResult(task: Task<AuthResult>, reloadUser: Boolean = false): String {
         if (Looper.myLooper() == Looper.getMainLooper()) {
             return err("native", "Firebase Auth waits must not run on the main looper; use spawn_blocking")
         }
         return try {
-            finalizeAuthUser(Tasks.await(task, TASK_TIMEOUT_SECONDS, TimeUnit.SECONDS))
+            finalizeAuthUser(
+                Tasks.await(task, TASK_TIMEOUT_SECONDS, TimeUnit.SECONDS),
+                reloadUser,
+            )
         } catch (t: Throwable) {
             mapThrowable(t)
         }
@@ -411,9 +416,11 @@ object DioxusFirebaseAuthHost {
      * Prefer Firebase's stored display name. On first Apple auth, AdditionalUserInfo
      * may carry a name Firebase did not copy — apply it once via updateProfile.
      * Apple only shares the name on the first authorization for that Services ID.
+     * `reloadUser` refreshes providerData from the server before the reply.
      */
-    private fun finalizeAuthUser(result: AuthResult): String {
+    private fun finalizeAuthUser(result: AuthResult, reloadUser: Boolean): String {
         val user = result.user ?: return ok()
+        var reloaded = false
         val profileName = AppleProfileName.from(result.additionalUserInfo?.profile)
         if (user.displayName.isNullOrBlank() && !profileName.isNullOrBlank()) {
             try {
@@ -425,11 +432,20 @@ object DioxusFirebaseAuthHost {
                     TimeUnit.SECONDS,
                 )
                 Tasks.await(user.reload(), TASK_TIMEOUT_SECONDS, TimeUnit.SECONDS)
+                reloaded = true
             } catch (_: Throwable) {
                 // Best-effort; still return the signed-in user.
             }
         }
-        return okUser(auth.currentUser ?: user)
+        val current = auth.currentUser ?: user
+        if (reloadUser && !reloaded) {
+            try {
+                Tasks.await(current.reload(), TASK_TIMEOUT_SECONDS, TimeUnit.SECONDS)
+            } catch (_: Throwable) {
+                // Best-effort; the link already succeeded.
+            }
+        }
+        return okUser(auth.currentUser ?: current)
     }
 
     private fun requireActivity(): Activity? = activityRef.get()?.get()

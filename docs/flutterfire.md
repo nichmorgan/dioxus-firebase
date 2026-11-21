@@ -50,7 +50,7 @@ FlutterFire Auth methods this crate does not expose:
 
 `sign_in_with_apple` and `link_with_apple` are fixed Apple entry points.
 
-- Android builds `OAuthProvider("apple.com")` with scopes `email` and `name`, then calls `startActivityForSignInWithProvider` or `startActivityForLinkWithProvider`. Each call starts that task. The host does not resume `pendingAuthResult`.
+- Android builds `OAuthProvider("apple.com")` with scopes `email` and `name`, then calls `startActivityForSignInWithProvider` or `startActivityForLinkWithProvider`. Each call starts that task. The host does not resume `pendingAuthResult`. After a link it reloads `currentUser` before replying, because the Custom Tab flow can omit `apple.com` from `providerData` until then. A failed reload still returns the linked user.
 - iOS uses `ASAuthorization` (scopes email and name, SHA-256 nonce) and `OAuthProvider.appleCredential(withIDToken:rawNonce:fullName:)`, then `signIn(with:)` or `link(with:)`. That credential applies the first-sign-in name, the same way FlutterFire does.
 - A second iOS Apple sign-in or link while a sheet or its Firebase follow-up is still running returns `operation-not-allowed` with `A Sign in with Apple request is already in progress.` Android does not have that guard. FlutterFire’s Android plugin does not either.
 
