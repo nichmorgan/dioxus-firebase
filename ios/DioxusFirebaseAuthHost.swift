@@ -267,6 +267,23 @@ public class DioxusFirebaseAuthHost: NSObject {
         }
     }
 
+    /// Reauthenticate with the `google.com` or `apple.com` sheet, then delete the
+    /// current user. A dismissed sheet replies before Firebase is touched.
+    @objc(deleteCurrentUser:)
+    public static func deleteCurrentUser(_ providerId: String) -> String {
+        guard auth.currentUser != nil else {
+            return err("no-current-user", "No user currently signed in.")
+        }
+        switch providerId.trimmingCharacters(in: .whitespacesAndNewlines) {
+        case "google.com":
+            return googleFlow(.reauthDelete)
+        case "apple.com":
+            return appleFlow(.reauthDelete)
+        default:
+            return err("invalid-argument", "provider_id must be google.com or apple.com")
+        }
+    }
+
     // MARK: - Social
 
     private static func configureGoogleSignInIfNeeded() {
@@ -296,10 +313,12 @@ public class DioxusFirebaseAuthHost: NSObject {
     }
 
     /// `pick` returns the sheet's token instead of signing in or linking.
+    /// `reauthDelete` reauthenticates the current user, then deletes it.
     private enum SocialMode {
         case signIn
         case link
         case pick
+        case reauthDelete
     }
 
     private static func googleFlow(_ mode: SocialMode) -> String {
@@ -341,6 +360,10 @@ public class DioxusFirebaseAuthHost: NSObject {
                         withIDToken: idToken,
                         accessToken: accessToken
                     )
+                    if mode == .reauthDelete {
+                        reauthenticateAndDelete(credential, finish: finish)
+                        return
+                    }
                     applyCredential(credential, link: mode == .link, finish: finish)
                 }
             }
@@ -355,7 +378,7 @@ public class DioxusFirebaseAuthHost: NSObject {
         if Thread.isMainThread {
             return err("native", "Firebase Auth waits must not run on the main thread; use spawn_blocking")
         }
-        if mode == .link && auth.currentUser == nil {
+        if (mode == .link || mode == .reauthDelete) && auth.currentUser == nil {
             return err("no-current-user", "No user currently signed in.")
         }
         appleLock.lock()
@@ -385,7 +408,7 @@ public class DioxusFirebaseAuthHost: NSObject {
                     case .failed(let message):
                         clearAppleInFlight()
                         finish(err("unavailable", message))
-                    case .success(let appleIdToken, let fullName):
+                    case .success(let appleIdToken, let fullName, let authorizationCode):
                         if mode == .pick {
                             clearAppleInFlight()
                             finish("OK\(unit)\(appleIdToken)\(unit)\(rawNonce)")
@@ -396,6 +419,16 @@ public class DioxusFirebaseAuthHost: NSObject {
                             rawNonce: rawNonce,
                             fullName: fullName
                         )
+                        if mode == .reauthDelete {
+                            reauthenticateAndDelete(
+                                credential,
+                                appleAuthorizationCode: authorizationCode
+                            ) { reply in
+                                clearAppleInFlight()
+                                finish(reply)
+                            }
+                            return
+                        }
                         applyCredential(credential, link: mode == .link) { reply in
                             clearAppleInFlight()
                             finish(reply)
@@ -440,6 +473,42 @@ public class DioxusFirebaseAuthHost: NSObject {
                 } else {
                     finish(okUser(result?.user ?? auth.currentUser))
                 }
+            }
+        }
+    }
+
+    /// `revokeToken` authenticates with the current user's ID token, so it must
+    /// run after reauth and before `delete`.
+    private static func reauthenticateAndDelete(
+        _ credential: AuthCredential,
+        appleAuthorizationCode: String? = nil,
+        finish: @escaping (String) -> Void
+    ) {
+        guard let user = auth.currentUser else {
+            finish(err("no-current-user", "No user currently signed in."))
+            return
+        }
+        user.reauthenticate(with: credential) { _, error in
+            if let error = error {
+                finish(mapError(error))
+                return
+            }
+            let deleteUser = {
+                user.delete { error in
+                    if let error = error {
+                        finish(mapError(error))
+                    } else {
+                        finish(ok())
+                    }
+                }
+            }
+            guard let code = appleAuthorizationCode, !code.isEmpty else {
+                deleteUser()
+                return
+            }
+            // A failed revoke must not keep an account the user asked to delete.
+            auth.revokeToken(withAuthorizationCode: code) { _ in
+                deleteUser()
             }
         }
     }
@@ -732,7 +801,7 @@ private final class AppleSignInCoordinator: NSObject, ASAuthorizationControllerD
     ASAuthorizationControllerPresentationContextProviding
 {
     enum Outcome {
-        case success(idToken: String, fullName: PersonNameComponents?)
+        case success(idToken: String, fullName: PersonNameComponents?, authorizationCode: String?)
         case canceled
         case failed(String)
     }
@@ -777,7 +846,14 @@ private final class AppleSignInCoordinator: NSObject, ASAuthorizationControllerD
             completion(.failed("Apple identity token missing"))
             return
         }
-        completion(.success(idToken: idToken, fullName: credential.fullName))
+        let authorizationCode = credential.authorizationCode.flatMap {
+            String(data: $0, encoding: .utf8)
+        }
+        completion(.success(
+            idToken: idToken,
+            fullName: credential.fullName,
+            authorizationCode: authorizationCode
+        ))
     }
 
     func authorizationController(

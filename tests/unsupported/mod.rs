@@ -21,6 +21,7 @@ enum Primitive {
     LinkWithApple,
     Unlink,
     UpdatePhotoUrl,
+    DeleteCurrentUser,
 }
 
 fn call_primitive(which: Primitive) -> Result<(), FirebaseError> {
@@ -33,6 +34,7 @@ fn call_primitive(which: Primitive) -> Result<(), FirebaseError> {
         Primitive::LinkWithApple => link_with_apple().map(|_| ()),
         Primitive::Unlink => unlink("google.com").map(|_| ()),
         Primitive::UpdatePhotoUrl => update_photo_url("https://ex/p.png"),
+        Primitive::DeleteCurrentUser => delete_current_user("apple.com"),
     }
 }
 
@@ -45,6 +47,7 @@ fn call_primitive(which: Primitive) -> Result<(), FirebaseError> {
 #[case(Primitive::LinkWithApple)]
 #[case(Primitive::Unlink)]
 #[case(Primitive::UpdatePhotoUrl)]
+#[case(Primitive::DeleteCurrentUser)]
 fn test_primitives_require_init_on_desktop(#[case] which: Primitive) {
     assert_eq!(
         call_primitive(which).unwrap_err(),

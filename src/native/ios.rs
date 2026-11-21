@@ -177,6 +177,13 @@ pub(crate) fn reload_current_user() -> Result<Option<User>, FirebaseError> {
     map_reply(reply, parse_optional_user)
 }
 
+pub(crate) fn delete_current_user(provider_id: &str) -> Result<(), FirebaseError> {
+    let host = host_class()?;
+    let provider = nsstring(provider_id)?;
+    let reply: *mut Object = unsafe { msg_send![host, deleteCurrentUser: provider] };
+    map_reply(reply, parse_void)
+}
+
 #[no_mangle]
 pub unsafe extern "C" fn dioxus_firebase_auth_state_changed(json: *const c_char) {
     let payload = if json.is_null() {
@@ -411,6 +418,10 @@ mod tests {
         ));
         assert!(matches!(
             unlink("google.com").unwrap_err(),
+            FirebaseError::HostMissing(_)
+        ));
+        assert!(matches!(
+            delete_current_user("apple.com").unwrap_err(),
             FirebaseError::HostMissing(_)
         ));
     }

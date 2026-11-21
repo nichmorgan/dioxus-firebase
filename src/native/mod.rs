@@ -113,3 +113,7 @@ pub(crate) fn pick_apple_credential() -> Result<ProviderCredential, FirebaseErro
 pub(crate) fn reload_current_user() -> Result<Option<User>, FirebaseError> {
     native_call!(reload_current_user())
 }
+
+pub(crate) fn delete_current_user(provider_id: &str) -> Result<(), FirebaseError> {
+    native_call!(delete_current_user(provider_id))
+}

@@ -85,3 +85,7 @@ pub(crate) fn pick_apple_credential() -> Result<ProviderCredential, FirebaseErro
 pub(crate) fn reload_current_user() -> Result<Option<User>, FirebaseError> {
     Err(FirebaseError::UnsupportedPlatform)
 }
+
+pub(crate) fn delete_current_user(_provider_id: &str) -> Result<(), FirebaseError> {
+    Err(FirebaseError::UnsupportedPlatform)
+}

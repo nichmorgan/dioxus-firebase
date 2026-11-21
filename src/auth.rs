@@ -1,7 +1,7 @@
 //! Auth primitives (email/password, Google, Apple) and token helpers.
 
 use crate::error::FirebaseError;
-use crate::host_protocol::{require_email, require_email_password};
+use crate::host_protocol::{require_email, require_email_password, require_reauth_provider};
 use crate::init::require_initialized;
 use crate::native;
 use crate::user::{ProviderCredential, User};
@@ -164,6 +164,24 @@ pub fn pick_google_credential() -> Result<ProviderCredential, FirebaseError> {
 pub fn pick_apple_credential() -> Result<ProviderCredential, FirebaseError> {
     require_initialized()?;
     native::pick_apple_credential()
+}
+
+/// Reauthenticate with a provider sheet, then delete the **current** user.
+///
+/// Pass `"google.com"` or `"apple.com"`; anything else is
+/// [`FirebaseError::InvalidConfig`]. The sheet opens first, so a dismiss
+/// (`canceled`; `web-context-canceled` for Apple on Android) or another account
+/// (`user-mismatch`) changes nothing. Apple's token is revoked before the delete
+/// (`revokeToken(withAuthorizationCode:)` on iOS, which App Review requires;
+/// `revokeAccessToken` on Android), and a failed revoke still deletes. Signed
+/// out returns `no-current-user` before a sheet opens. On success subscribers
+/// receive `None`. Call from `spawn_blocking` / a worker thread.
+pub fn delete_current_user(provider_id: impl AsRef<str>) -> Result<(), FirebaseError> {
+    require_initialized()?;
+    let provider_id = require_reauth_provider(provider_id.as_ref())?;
+    native::delete_current_user(provider_id)?;
+    crate::subscribe::dispatch_auth_state(None);
+    Ok(())
 }
 
 /// Reload the current user and force a fresh ID token (`User.reload`).

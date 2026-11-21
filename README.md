@@ -29,8 +29,9 @@ Inspired by [FlutterFire](https://github.com/firebase/flutterfire) `firebase_aut
 | `sign_in_with_apple` | `FirebaseAuth.signInWithProvider(AppleAuthProvider())` |
 | `link_with_apple` | `User.linkWithProvider(AppleAuthProvider())` |
 | `reload_current_user` | `User.reload` plus `User.getIdToken(true)` |
+| `delete_current_user` | `User.reauthenticateWithProvider` plus `User.delete` |
 
-Not wrapped: anonymous and custom-token sign-in, email-link sign-in, credential and reauthenticate APIs, email verification, email or password update, user delete, action codes, phone auth, multi-factor, `idTokenChanges` and `userChanges`, other identity providers, and Apple authorization-code revoke.
+Not wrapped: anonymous and custom-token sign-in, email-link sign-in, credential and standalone reauthenticate APIs, email verification, email or password update, a delete without reauth, action codes, phone auth, multi-factor, `idTokenChanges` and `userChanges`, other identity providers, and a standalone Apple authorization-code revoke.
 
 Extras:
 
@@ -39,10 +40,11 @@ Extras:
 - `sign_in_with_apple` and `link_with_apple` — a fixed Apple sheet. A second iOS call while one is up returns `operation-not-allowed`.
 - Android copies a blank Apple `displayName` from the OAuth profile once. Apple sends that name only on the first authorization.
 - `pick_google_credential` and `pick_apple_credential` — the same sheets, returning a `ProviderCredential` (ID token, plus the raw nonce for Apple) without signing in or linking. A backend links it with the Admin SDK. Apple pick is iOS only; Android returns `UnsupportedPlatform`.
+- `delete_current_user("google.com" | "apple.com")` — the provider sheet reauthenticates first, so a dismiss changes nothing; then Apple's token is revoked (required by App Review on iOS) and the user is deleted.
 - `sign_out` also clears Android Credential Manager (best-effort) and iOS `GIDSignIn`.
 - `is_initialized` — a local guard. FlutterFire does not expose one.
 
-Link collisions return `credential-already-in-use` or `account-exists-with-different-credential`. The host does not sign in with the other account. Signed-out link, unlink, and profile updates return `no-current-user`.
+Link collisions return `credential-already-in-use` or `account-exists-with-different-credential`. The host does not sign in with the other account. Signed-out link, unlink, delete, and profile updates return `no-current-user`.
 
 ## Architecture
 

@@ -276,6 +276,15 @@ pub(crate) fn reload_current_user() -> Result<Option<User>, FirebaseError> {
     )
 }
 
+pub(crate) fn delete_current_user(provider_id: &str) -> Result<(), FirebaseError> {
+    call_one_string(
+        jni_str!("deleteCurrentUser"),
+        "DioxusFirebaseAuthHost.deleteCurrentUser",
+        provider_id,
+        parse_void,
+    )
+}
+
 // --- JNI Dispatch Helpers ---
 
 fn with_host<F, T>(f: F) -> Result<T, FirebaseError>
@@ -649,6 +658,10 @@ mod tests {
         ));
         assert!(matches!(
             unlink("google.com").unwrap_err(),
+            FirebaseError::HostMissing(_)
+        ));
+        assert!(matches!(
+            delete_current_user("google.com").unwrap_err(),
             FirebaseError::HostMissing(_)
         ));
     }

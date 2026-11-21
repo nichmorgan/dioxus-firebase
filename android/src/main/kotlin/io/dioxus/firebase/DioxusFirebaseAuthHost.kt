@@ -30,6 +30,7 @@ import com.google.firebase.auth.FirebaseAuth
 import com.google.firebase.auth.FirebaseAuthException
 import com.google.firebase.auth.FirebaseUser
 import com.google.firebase.auth.GoogleAuthProvider
+import com.google.firebase.auth.OAuthCredential
 import com.google.firebase.auth.OAuthProvider
 import com.google.firebase.auth.UserProfileChangeRequest
 import java.lang.ref.WeakReference
@@ -214,6 +215,20 @@ object DioxusFirebaseAuthHost {
         return awaitTask({ user.unlink(id) }) { okUser(it.user) }
     }
 
+    /**
+     * Reauthenticate with the `google.com` or `apple.com` sheet, then delete the
+     * current user. A dismissed sheet replies before Firebase is touched.
+     */
+    @JvmStatic
+    fun deleteCurrentUser(providerId: String): String {
+        val user = auth.currentUser ?: return noCurrentUser()
+        return when (providerId.trim()) {
+            "google.com" -> reauthenticateWithGoogleAndDelete(user)
+            "apple.com" -> reauthenticateWithAppleAndDelete(user)
+            else -> err("invalid-argument", "provider_id must be google.com or apple.com")
+        }
+    }
+
     /** Implemented in Rust via [JNIEnv.RegisterNatives]. */
     @JvmStatic
     external fun onAuthStateChanged(userPayload: String?)
@@ -248,9 +263,7 @@ object DioxusFirebaseAuthHost {
             return err("native", "Firebase Auth waits must not run on the main looper; use spawn_blocking")
         }
         val activity = requireActivity() ?: return err("unavailable", "Activity required for Apple sign-in")
-        val provider = OAuthProvider.newBuilder("apple.com")
-            .setScopes(listOf("email", "name"))
-            .build()
+        val provider = appleProvider()
         return try {
             val task = if (link) {
                 val user = auth.currentUser ?: return noCurrentUser()
@@ -262,6 +275,45 @@ object DioxusFirebaseAuthHost {
         } catch (t: Throwable) {
             mapThrowable(t)
         }
+    }
+
+    private fun appleProvider(): OAuthProvider =
+        OAuthProvider.newBuilder("apple.com")
+            .setScopes(listOf("email", "name"))
+            .build()
+
+    private fun reauthenticateWithGoogleAndDelete(user: FirebaseUser): String {
+        val credential = when (val result = pickGoogleIdToken()) {
+            is CredentialResult.Ok -> GoogleAuthProvider.getCredential(result.idToken, null)
+            is CredentialResult.Err -> return result.reply
+        }
+        return awaitTask({
+            Tasks.await(user.reauthenticate(credential), TASK_TIMEOUT_SECONDS, TimeUnit.SECONDS)
+            user.delete()
+        }) { ok() }
+    }
+
+    private fun reauthenticateWithAppleAndDelete(user: FirebaseUser): String {
+        if (Looper.myLooper() == Looper.getMainLooper()) {
+            return err("native", "Firebase Auth waits must not run on the main looper; use spawn_blocking")
+        }
+        val activity = requireActivity() ?: return err("unavailable", "Activity required for Apple sign-in")
+        return awaitTask({
+            val result = Tasks.await(
+                user.startActivityForReauthenticateWithProvider(activity, appleProvider()),
+                TASK_TIMEOUT_SECONDS,
+                TimeUnit.SECONDS,
+            )
+            val accessToken = (result.credential as? OAuthCredential)?.accessToken
+            if (!accessToken.isNullOrBlank()) {
+                try {
+                    Tasks.await(auth.revokeAccessToken(accessToken), TASK_TIMEOUT_SECONDS, TimeUnit.SECONDS)
+                } catch (_: Throwable) {
+                    // A failed revoke must not keep an account the user asked to delete.
+                }
+            }
+            user.delete()
+        }) { ok() }
     }
 
     /** Best-effort Credential Manager clear; must not fail Firebase sign-out. */

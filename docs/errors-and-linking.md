@@ -13,8 +13,9 @@ Failures return `FirebaseError::AuthException { code, message }` with Firebase-s
 - `credential-already-in-use`
 - `provider-already-linked`
 - `no-such-provider` (unlink of a provider that is not linked)
-- `no-current-user` (link, unlink, or profile update while signed out)
+- `no-current-user` (link, unlink, delete, or profile update while signed out)
 - `requires-recent-login` (sensitive op needs a fresh sign-in)
+- `user-mismatch` (`delete_current_user` reauth picked a different account; nothing is deleted)
 - `operation-not-allowed` (a second iOS Apple sign-in or link while a sheet is already up)
 - `canceled` (user dismissed the Google sheet, or the iOS Apple sheet)
 - `web-context-canceled` (user dismissed the Android Apple Custom Tab)
@@ -34,5 +35,9 @@ Firebase allows one login per provider, so the client cannot link a second Googl
 To switch without that gap, call `pick_google_credential()` or `pick_apple_credential()` (iOS only). They open the same sheets and return the ID token without touching Firebase, so a dismiss changes nothing. Send the token to your backend, verify it, and swap the provider there with Identity Toolkit `accounts:update` (`deleteProvider` plus `linkProviderUserInfo`). Then call `reload_current_user()` so the client sees the new `providerData`.
 
 Signing in with that provider after unlink (without linking) creates a **new** Firebase user (Firebase Auth behavior).
+
+## Delete
+
+`delete_current_user("google.com")` or `delete_current_user("apple.com")` opens that provider's sheet and reauthenticates before anything changes, so a dismiss (`canceled`, or `web-context-canceled` for Apple on Android) keeps the account. For Apple it then revokes the token: `revokeToken(withAuthorizationCode:)` on iOS, which App Review requires, and `revokeAccessToken` on Android. A failed revoke still deletes. A failed reauth or delete returns its wire code and keeps the user. On success, auth-state subscribers receive `None`.
 
 Google Console and platform setup: [Google sign-in](google-sign-in.md). Apple, including the same uid on Android and iOS: [Apple sign-in](apple-sign-in.md).

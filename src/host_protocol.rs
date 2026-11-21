@@ -162,6 +162,16 @@ pub(crate) fn require_email(email: &str) -> Result<(), FirebaseError> {
     Ok(())
 }
 
+/// Providers whose sheet can reauthenticate before `delete_current_user`.
+pub(crate) fn require_reauth_provider(provider_id: &str) -> Result<&str, FirebaseError> {
+    match provider_id.trim() {
+        id @ ("google.com" | "apple.com") => Ok(id),
+        other => Err(FirebaseError::InvalidConfig(format!(
+            "provider_id must be google.com or apple.com, got {other:?}"
+        ))),
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -385,6 +395,56 @@ mod tests {
             }
             _ => panic!("unexpected error variant: {err:?}"),
         }
+    }
+
+    #[rstest]
+    #[case::google("google.com", "google.com")]
+    #[case::apple("apple.com", "apple.com")]
+    #[case::trimmed(" apple.com\n", "apple.com")]
+    fn test_require_reauth_provider_accepts(#[case] input: &str, #[case] expected: &str) {
+        assert_eq!(require_reauth_provider(input), Ok(expected));
+    }
+
+    #[rstest]
+    #[case::empty("")]
+    #[case::password("password")]
+    #[case::other_oauth("github.com")]
+    #[case::wrong_case("Google.com")]
+    fn test_require_reauth_provider_rejects(#[case] input: &str) {
+        assert!(matches!(
+            require_reauth_provider(input),
+            Err(FirebaseError::InvalidConfig(msg)) if msg.contains("google.com or apple.com")
+        ));
+    }
+
+    #[rstest]
+    #[case::deleted("OK".to_string(), Ok(()))]
+    #[case::canceled(
+        err_reply("canceled", "user canceled Apple sign-in"),
+        Err(FirebaseError::AuthException {
+            code: "canceled".into(),
+            message: "user canceled Apple sign-in".into(),
+        })
+    )]
+    #[case::signed_out(
+        err_reply("no-current-user", "No user currently signed in."),
+        Err(FirebaseError::AuthException {
+            code: "no-current-user".into(),
+            message: "No user currently signed in.".into(),
+        })
+    )]
+    #[case::other_account(
+        err_reply("user-mismatch", "The supplied credentials do not correspond to the previously signed in user."),
+        Err(FirebaseError::AuthException {
+            code: "user-mismatch".into(),
+            message: "The supplied credentials do not correspond to the previously signed in user.".into(),
+        })
+    )]
+    fn test_parse_delete_current_user_reply(
+        #[case] input: String,
+        #[case] expected: Result<(), FirebaseError>,
+    ) {
+        assert_eq!(parse_void(&input), expected);
     }
 
     #[test]

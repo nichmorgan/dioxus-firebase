@@ -24,6 +24,7 @@ An extra exists only when an app cannot get the same result by calling the publi
 | `link_with_google` | `User.linkWithProvider(GoogleAuthProvider())` | `linkWithGoogle` | `linkWithGoogle` |
 | `sign_in_with_apple` | `FirebaseAuth.signInWithProvider(AppleAuthProvider())` | `signInWithApple` | `signInWithApple` |
 | `link_with_apple` | `User.linkWithProvider(AppleAuthProvider())` | `linkWithApple` | `linkWithApple` |
+| `delete_current_user` | `User.reauthenticateWithProvider` plus `User.delete` | `deleteCurrentUser` | `deleteCurrentUser:` |
 
 FlutterFire has no `signInWithGoogle` or `signInWithApple`. Those Dart cells are the generic provider calls.
 
@@ -32,14 +33,14 @@ FlutterFire has no `signInWithGoogle` or `signInWithApple`. Those Dart cells are
 FlutterFire Auth methods this crate does not expose:
 
 - `signInAnonymously`, `signInWithCustomToken`, `signInWithEmailLink`
-- `signInWithCredential`, `linkWithCredential`, `reauthenticateWithCredential`, `reauthenticateWithProvider`
+- `signInWithCredential`, `linkWithCredential`, `reauthenticateWithCredential`, and a standalone `reauthenticateWithProvider`
 - `sendEmailVerification`, `verifyBeforeUpdateEmail`, `updateEmail`, `updatePassword`
-- `User.delete`, `User.reload`
+- `User.delete` without reauth (use `delete_current_user`)
 - `applyActionCode`, `checkActionCode`, `confirmPasswordReset`, `verifyPasswordResetCode`
 - Phone auth and multi-factor (including TOTP)
 - `idTokenChanges`, `userChanges`
 - Other providers: Facebook, GitHub, Microsoft, Game Center, and generic OAuth
-- `additionalUserInfo.authorizationCode` and `revokeTokenWithAuthorizationCode` (iOS). FlutterFire’s Android `revokeTokenWithAuthorizationCode` returns success and does not revoke.
+- `additionalUserInfo.authorizationCode` and a standalone `revokeTokenWithAuthorizationCode`. `delete_current_user("apple.com")` revokes internally. FlutterFire’s Android `revokeTokenWithAuthorizationCode` returns success and does not revoke.
 
 ## Extras
 
@@ -55,6 +56,8 @@ FlutterFire Auth methods this crate does not expose:
 
 On Android, if Firebase leaves `displayName` blank after Apple auth, the host copies a name once from `additionalUserInfo.profile` (`name`, `fullName`, `full_name`, or `given_name` plus `family_name`). Custom Tabs have no `fullName`, and Apple sends the name only on the first authorization for that Services ID. iOS does not do this copy. `appleCredential(fullName:)` is what stores the name there.
 
+`delete_current_user` takes `"google.com"` or `"apple.com"` and opens that sheet before any Firebase call. Google reauthenticates with the sheet's credential (`reauthenticate`), then calls `delete`. Apple on Android uses `startActivityForReauthenticateWithProvider`, then `revokeAccessToken` with the `OAuthCredential` access token. Apple on iOS keeps the `ASAuthorizationAppleIDCredential` `authorizationCode`, reauthenticates with `appleCredential`, then calls `revokeToken(withAuthorizationCode:)`. A failed revoke still deletes; a failed reauth or delete does not.
+
 `sign_out` calls Firebase `signOut`, then best-effort clears Android Credential Manager and calls `GIDSignIn.sharedInstance.signOut()` on iOS. A failure in those clears does not fail the Firebase sign-out.
 
 `is_initialized` reports whether `initialize_app` has succeeded in this process. FlutterFire has no matching call.
@@ -63,6 +66,6 @@ On Android, if Firebase leaves `displayName` blank after Apple auth, the host co
 
 Link collisions return `credential-already-in-use` or `account-exists-with-different-credential`. The host does not sign in with `updatedCredential`, and the wire error does not carry that credential. FlutterFire attaches it to the error so the app can call `signInWithCredential`. This crate has no credential API. To use the other account, call `sign_in_with_google` or `sign_in_with_apple`. To keep the current uid, `unlink` the provider and link again.
 
-Signed-out `link_with_apple`, `unlink`, and profile updates return `no-current-user` with `No user currently signed in.` before a sheet opens. `link_with_google` obtains the Google credential first, then returns `no-current-user` if nobody is signed in. `requires-recent-login` stays the Firebase code for a signed-in user whose session is too old.
+Signed-out `link_with_apple`, `unlink`, `delete_current_user`, and profile updates return `no-current-user` with `No user currently signed in.` before a sheet opens. `link_with_google` obtains the Google credential first, then returns `no-current-user` if nobody is signed in. `requires-recent-login` stays the Firebase code for a signed-in user whose session is too old.
 
 `get_id_token` returns `Ok(None)` when signed out. FlutterFire’s `User.getIdToken` is called on a user and errors with `no-current-user` when `currentUser` is missing. Call `current_user` first when the app needs to tell “signed out” from “no token”.
