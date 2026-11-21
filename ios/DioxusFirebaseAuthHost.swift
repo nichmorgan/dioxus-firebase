@@ -276,7 +276,7 @@ public class DioxusFirebaseAuthHost: NSObject {
         }
         switch providerId.trimmingCharacters(in: .whitespacesAndNewlines) {
         case "google.com":
-            return googleFlow(.reauthDelete)
+            return googleDelete()
         case "apple.com":
             return appleFlow(.reauthDelete)
         default:
@@ -321,7 +321,81 @@ public class DioxusFirebaseAuthHost: NSObject {
         case reauthDelete
     }
 
-    private static func googleFlow(_ mode: SocialMode) -> String {
+    /// Not a wire reply: the silent Google reauth found no matching session.
+    private static let silentGoogleMiss = "SILENT_GOOGLE_MISS"
+
+    /// Delete right away; reauthenticate only when Firebase wants a recent
+    /// sign-in. The signed-in Google session is reused silently when its email
+    /// matches, otherwise the sheet opens with that email as the hint.
+    private static func googleDelete() -> String {
+        if Thread.isMainThread {
+            return err("native", "Firebase Auth waits must not run on the main thread; use spawn_blocking")
+        }
+        guard let user = auth.currentUser else {
+            return err("no-current-user", "No user currently signed in.")
+        }
+        let first = awaitReply { finish in
+            user.delete { error in
+                finish(error.map(mapError) ?? ok())
+            }
+        }
+        guard first.hasPrefix("ERR\(unit)requires-recent-login\(unit)") else {
+            return first
+        }
+        let email = user.providerData.first { $0.providerID == "google.com" }?.email
+        let silent = silentGoogleReauthDelete(email: email)
+        if silent != silentGoogleMiss {
+            return silent
+        }
+        return googleFlow(.reauthDelete, hint: email)
+    }
+
+    private static func silentGoogleReauthDelete(email: String?) -> String {
+        guard let email = email, !email.isEmpty, resolvedGoogleClientId() != nil else {
+            return silentGoogleMiss
+        }
+        configureGoogleSignInIfNeeded()
+        return awaitReply { finish in
+            DispatchQueue.main.async {
+                let attempt: (GIDGoogleUser) -> Void = { googleUser in
+                    guard googleUser.profile?.email.lowercased() == email.lowercased() else {
+                        finish(silentGoogleMiss)
+                        return
+                    }
+                    googleUser.refreshTokensIfNeeded { refreshed, error in
+                        guard error == nil,
+                              let refreshed = refreshed,
+                              let idToken = refreshed.idToken?.tokenString,
+                              !idToken.isEmpty
+                        else {
+                            finish(silentGoogleMiss)
+                            return
+                        }
+                        let credential = GoogleAuthProvider.credential(
+                            withIDToken: idToken,
+                            accessToken: refreshed.accessToken.tokenString
+                        )
+                        reauthenticateAndDelete(credential, finish: finish)
+                    }
+                }
+                if let current = GIDSignIn.sharedInstance.currentUser {
+                    attempt(current)
+                } else if GIDSignIn.sharedInstance.hasPreviousSignIn() {
+                    GIDSignIn.sharedInstance.restorePreviousSignIn { restored, _ in
+                        if let restored = restored {
+                            attempt(restored)
+                        } else {
+                            finish(silentGoogleMiss)
+                        }
+                    }
+                } else {
+                    finish(silentGoogleMiss)
+                }
+            }
+        }
+    }
+
+    private static func googleFlow(_ mode: SocialMode, hint: String? = nil) -> String {
         if Thread.isMainThread {
             return err("native", "Firebase Auth waits must not run on the main thread; use spawn_blocking")
         }
@@ -335,7 +409,7 @@ public class DioxusFirebaseAuthHost: NSObject {
 
         return awaitReply { finish in
             DispatchQueue.main.async {
-                GIDSignIn.sharedInstance.signIn(withPresenting: presenter) { result, error in
+                GIDSignIn.sharedInstance.signIn(withPresenting: presenter, hint: hint) { result, error in
                     if let error = error as NSError? {
                         if error.code == GIDSignInError.canceled.rawValue {
                             finish(err("canceled", error.localizedDescription))

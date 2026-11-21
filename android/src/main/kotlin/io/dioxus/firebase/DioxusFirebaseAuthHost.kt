@@ -28,6 +28,7 @@ import com.google.firebase.auth.AuthCredential
 import com.google.firebase.auth.AuthResult
 import com.google.firebase.auth.FirebaseAuth
 import com.google.firebase.auth.FirebaseAuthException
+import com.google.firebase.auth.FirebaseAuthRecentLoginRequiredException
 import com.google.firebase.auth.FirebaseUser
 import com.google.firebase.auth.GoogleAuthProvider
 import com.google.firebase.auth.OAuthCredential
@@ -243,7 +244,8 @@ object DioxusFirebaseAuthHost {
         return applyCredential(credential, link)
     }
 
-    private fun pickGoogleIdToken(): CredentialResult {
+    /** `reauth` first offers only accounts already authorized for this app, auto-selected. */
+    private fun pickGoogleIdToken(reauth: Boolean = false): CredentialResult {
         if (Looper.myLooper() == Looper.getMainLooper()) {
             return CredentialResult.Err(
                 err("native", "Firebase Auth waits must not run on the main looper; use spawn_blocking"),
@@ -255,6 +257,24 @@ object DioxusFirebaseAuthHost {
         }
         val activity = requireActivity()
             ?: return CredentialResult.Err(err("unavailable", "Activity required for Google sign-in"))
+        if (reauth) {
+            val authorized = GetGoogleIdOption.Builder()
+                .setFilterByAuthorizedAccounts(true)
+                .setServerClientId(clientId)
+                .setAutoSelectEnabled(true)
+                .build()
+            val request = GetCredentialRequest.Builder()
+                .addCredentialOption(authorized)
+                .build()
+            when (val first = getCredential(activity, request)) {
+                is CredentialResult.Ok -> return first
+                is CredentialResult.Err -> {
+                    if (!shouldFallbackToSignInWithGoogle(first.reply)) {
+                        return first
+                    }
+                }
+            }
+        }
         return awaitGoogleIdToken(activity, clientId)
     }
 
@@ -282,8 +302,20 @@ object DioxusFirebaseAuthHost {
             .setScopes(listOf("email", "name"))
             .build()
 
+    /** Delete right away; open a sheet only when Firebase wants a recent sign-in. */
     private fun reauthenticateWithGoogleAndDelete(user: FirebaseUser): String {
-        val credential = when (val result = pickGoogleIdToken()) {
+        if (Looper.myLooper() == Looper.getMainLooper()) {
+            return err("native", "Firebase Auth waits must not run on the main looper; use spawn_blocking")
+        }
+        try {
+            Tasks.await(user.delete(), TASK_TIMEOUT_SECONDS, TimeUnit.SECONDS)
+            return ok()
+        } catch (t: Throwable) {
+            if (!requiresRecentLogin(t)) {
+                return mapThrowable(t)
+            }
+        }
+        val credential = when (val result = pickGoogleIdToken(reauth = true)) {
             is CredentialResult.Ok -> GoogleAuthProvider.getCredential(result.idToken, null)
             is CredentialResult.Err -> return result.reply
         }
@@ -291,6 +323,15 @@ object DioxusFirebaseAuthHost {
             Tasks.await(user.reauthenticate(credential), TASK_TIMEOUT_SECONDS, TimeUnit.SECONDS)
             user.delete()
         }) { ok() }
+    }
+
+    private fun requiresRecentLogin(t: Throwable): Boolean {
+        var cur: Throwable? = t
+        while (cur != null) {
+            if (cur is FirebaseAuthRecentLoginRequiredException) return true
+            cur = cur.cause
+        }
+        return false
     }
 
     private fun reauthenticateWithAppleAndDelete(user: FirebaseUser): String {

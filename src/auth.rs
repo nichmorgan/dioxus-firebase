@@ -166,11 +166,16 @@ pub fn pick_apple_credential() -> Result<ProviderCredential, FirebaseError> {
     native::pick_apple_credential()
 }
 
-/// Reauthenticate with a provider sheet, then delete the **current** user.
+/// Delete the **current** user, reauthenticating with that provider when needed.
 ///
 /// Pass `"google.com"` or `"apple.com"`; anything else is
-/// [`FirebaseError::InvalidConfig`]. The sheet opens first, so a dismiss
-/// (`canceled`; `web-context-canceled` for Apple on Android) or another account
+/// [`FirebaseError::InvalidConfig`]. Google deletes right away after a recent
+/// sign-in. When Firebase answers `requires-recent-login`, it reauthenticates
+/// the signed-in Google account: Android offers only accounts already
+/// authorized for this app (auto-selected when there is one); iOS reuses the
+/// matching Google session silently, else opens the sheet with that email as
+/// the hint. Apple always opens its sheet first. A dismiss (`canceled`;
+/// `web-context-canceled` for Apple on Android) or another account
 /// (`user-mismatch`) changes nothing. Apple's token is revoked before the delete
 /// (`revokeToken(withAuthorizationCode:)` on iOS, which App Review requires;
 /// `revokeAccessToken` on Android), and a failed revoke still deletes. Signed

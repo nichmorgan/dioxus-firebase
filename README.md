@@ -40,7 +40,7 @@ Extras:
 - `sign_in_with_apple` and `link_with_apple` — a fixed Apple sheet. A second iOS call while one is up returns `operation-not-allowed`.
 - Android copies a blank Apple `displayName` from the OAuth profile once. Apple sends that name only on the first authorization.
 - `pick_google_credential` and `pick_apple_credential` — the same sheets, returning a `ProviderCredential` (ID token, plus the raw nonce for Apple) without signing in or linking. A backend links it with the Admin SDK. Apple pick is iOS only; Android returns `UnsupportedPlatform`.
-- `delete_current_user("google.com" | "apple.com")` — the provider sheet reauthenticates first, so a dismiss changes nothing; then Apple's token is revoked (required by App Review on iOS) and the user is deleted.
+- `delete_current_user("google.com" | "apple.com")` — Google deletes right away after a recent sign-in, and otherwise reauthenticates the signed-in Google account (auto-selected on Android, silent or hinted on iOS). Apple opens its sheet first and revokes its token (required by App Review on iOS). A dismiss changes nothing.
 - `sign_out` also clears Android Credential Manager (best-effort) and iOS `GIDSignIn`.
 - `is_initialized` — a local guard. FlutterFire does not expose one.
 
