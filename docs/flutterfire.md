@@ -44,7 +44,7 @@ FlutterFire Auth methods this crate does not expose:
 
 ## Extras
 
-`FirebaseOptions.google_web_client_id` is the Google server client id. Android Credential Manager uses it as the server client id. On iOS it overrides `GIDClientID` from Info.plist. FlutterFire reads that id from the Google Sign-In plugin and `google-services` config instead of from `FirebaseOptions`.
+`FirebaseOptions.google_web_client_id` is the Google server client id. Android Credential Manager uses it as the server client id. On iOS, a non-empty Info.plist `GIDClientID` is the OAuth iOS client (`clientID`) and the web client id is `serverClientID`. Without `GIDClientID`, the web client id is `clientID`. FlutterFire reads the iOS client from the Google Sign-In plugin and `google-services` config instead of from `FirebaseOptions`.
 
 `sign_in_with_google` and `link_with_google` open a fixed Google sheet: Credential Manager on Android (One Tap, then the Sign in with Google button when One Tap has no credential), and `GIDSignIn` on iOS. FlutterFire’s generic `signInWithProvider(GoogleAuthProvider())` is a different native path.
 

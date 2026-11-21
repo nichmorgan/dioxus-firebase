@@ -16,7 +16,9 @@ For a live demo APK, add the **built APK’s** SHA-1 (`apksigner verify --print-
 
 ## iOS
 
-- Pass `google_web_client_id` and/or set `GIDClientID` in Info.plist; add the reversed client ID URL scheme.
+- Set `GIDClientID` in Info.plist to the OAuth **iOS** client id (bundle id of this app). Add that client's reversed id as a URL scheme (`123-abc.apps.googleusercontent.com` → `com.googleusercontent.apps.123-abc`).
+- Pass `google_web_client_id` as well. The host uses it as `serverClientID`. A web client cannot be `clientID` on iOS: Google rejects the custom scheme with `invalid_request` (`Custom scheme URIs are not allowed for 'WEB' client type`).
+- If `GIDClientID` is absent, the host falls back to `google_web_client_id` as `clientID`. That path cannot finish a custom-scheme sign-in.
 - The **app** must forward open-URL callbacks to `GIDSignIn.sharedInstance.handle(url)` (scene / app delegate — Dioxus owns that path).
 - `sign_out` clears Firebase Auth and best-effort `GIDSignIn` session state.
 

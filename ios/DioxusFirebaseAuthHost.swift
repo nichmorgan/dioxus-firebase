@@ -286,28 +286,42 @@ public class DioxusFirebaseAuthHost: NSObject {
 
     // MARK: - Social
 
+    /// OAuth iOS client from Info.plist. A web client cannot own the custom URL
+    /// scheme (`invalid_request`: custom scheme URIs are not allowed for WEB).
+    private static func plistGoogleClientId() -> String? {
+        guard let plist = Bundle.main.object(forInfoDictionaryKey: "GIDClientID") as? String else {
+            return nil
+        }
+        let trimmed = plist.trimmingCharacters(in: .whitespacesAndNewlines)
+        return trimmed.isEmpty ? nil : trimmed
+    }
+
+    /// `GIDClientID` is the iOS client. The web client id is `serverClientID` so
+    /// Firebase still receives that audience. Without `GIDClientID`, the web
+    /// client id stays `clientID` for apps that have not split the two.
     private static func configureGoogleSignInIfNeeded() {
-        let clientId: String
-        if !googleWebClientId.isEmpty {
-            clientId = googleWebClientId
-        } else if let plist = Bundle.main.object(forInfoDictionaryKey: "GIDClientID") as? String,
-                  !plist.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
-            clientId = plist.trimmingCharacters(in: .whitespacesAndNewlines)
-        } else {
+        if let iosClientId = plistGoogleClientId() {
+            if googleWebClientId.isEmpty {
+                GIDSignIn.sharedInstance.configuration = GIDConfiguration(clientID: iosClientId)
+            } else {
+                GIDSignIn.sharedInstance.configuration = GIDConfiguration(
+                    clientID: iosClientId,
+                    serverClientID: googleWebClientId
+                )
+            }
             return
         }
-        GIDSignIn.sharedInstance.configuration = GIDConfiguration(clientID: clientId)
+        if !googleWebClientId.isEmpty {
+            GIDSignIn.sharedInstance.configuration = GIDConfiguration(clientID: googleWebClientId)
+        }
     }
 
     private static func resolvedGoogleClientId() -> String? {
+        if let iosClientId = plistGoogleClientId() {
+            return iosClientId
+        }
         if !googleWebClientId.isEmpty {
             return googleWebClientId
-        }
-        if let plist = Bundle.main.object(forInfoDictionaryKey: "GIDClientID") as? String {
-            let trimmed = plist.trimmingCharacters(in: .whitespacesAndNewlines)
-            if !trimmed.isEmpty {
-                return trimmed
-            }
         }
         return nil
     }
