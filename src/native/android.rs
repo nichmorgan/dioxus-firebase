@@ -14,9 +14,11 @@ use jni::{jni_sig, jni_str, native_method, Env, JavaVM, NativeMethod};
 
 use crate::config::FirebaseOptions;
 use crate::error::FirebaseError;
-use crate::host_protocol::{parse_optional_string, parse_optional_user, parse_user, parse_void};
+use crate::host_protocol::{
+    parse_optional_string, parse_optional_user, parse_provider_credential, parse_user, parse_void,
+};
 use crate::subscribe;
-use crate::user::User;
+use crate::user::{ProviderCredential, User};
 
 const HOST_CLASS_DOT: &str = "io.dioxus.firebase.DioxusFirebaseAuthHost";
 
@@ -249,6 +251,28 @@ pub(crate) fn link_with_apple() -> Result<User, FirebaseError> {
         jni_str!("linkWithApple"),
         "DioxusFirebaseAuthHost.linkWithApple",
         parse_user,
+    )
+}
+
+pub(crate) fn pick_google_credential() -> Result<ProviderCredential, FirebaseError> {
+    call_no_args(
+        jni_str!("pickGoogleCredential"),
+        "DioxusFirebaseAuthHost.pickGoogleCredential",
+        parse_provider_credential,
+    )
+}
+
+/// Apple on Android is Firebase's browser flow, which signs in or links in one
+/// step and never hands the ID token back.
+pub(crate) fn pick_apple_credential() -> Result<ProviderCredential, FirebaseError> {
+    Err(FirebaseError::UnsupportedPlatform)
+}
+
+pub(crate) fn reload_current_user() -> Result<Option<User>, FirebaseError> {
+    call_no_args(
+        jni_str!("reloadCurrentUser"),
+        "DioxusFirebaseAuthHost.reloadCurrentUser",
+        parse_optional_user,
     )
 }
 

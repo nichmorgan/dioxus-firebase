@@ -49,6 +49,18 @@ impl User {
     }
 }
 
+/// An ID token from the Google or Apple sheet that was not signed in or linked.
+///
+/// Send it to a backend that verifies it and links that identity with the
+/// Admin SDK; the client never holds two logins for one provider.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ProviderCredential {
+    /// Provider-issued OpenID Connect ID token.
+    pub id_token: String,
+    /// Apple only: the nonce whose SHA-256 hex is the token's `nonce` claim.
+    pub raw_nonce: Option<String>,
+}
+
 pub(crate) fn nonempty(value: String) -> Option<String> {
     let trimmed = value.trim();
     if trimmed.is_empty() {

@@ -177,13 +177,33 @@ object DioxusFirebaseAuthHost {
     @JvmStatic
     fun linkWithGoogle(): String = signInOrLinkWithGoogle(link = true)
 
+    /**
+     * Show the Google account sheet and reply `OK␟idToken␟` without touching
+     * Firebase. Apps send the token to a backend that links it server-side.
+     */
+    @JvmStatic
+    fun pickGoogleCredential(): String = when (val result = pickGoogleIdToken()) {
+        is CredentialResult.Ok -> "OK$UNIT${result.idToken}$UNIT"
+        is CredentialResult.Err -> result.reply
+    }
+
+    /** Reload the current user and force a fresh ID token (server-side provider changes). */
+    @JvmStatic
+    fun reloadCurrentUser(): String {
+        val user = auth.currentUser ?: return ok()
+        return awaitTask({
+            Tasks.await(user.reload(), TASK_TIMEOUT_SECONDS, TimeUnit.SECONDS)
+            user.getIdToken(true)
+        }) { okUser(auth.currentUser) }
+    }
+
     @JvmStatic
     fun signInWithApple(): String = signInOrLinkWithApple(link = false)
 
     @JvmStatic
     fun linkWithApple(): String = signInOrLinkWithApple(link = true)
 
-    /** Unlink a provider id (e.g. `google.com`). Prefer unlink then link to change store identity. */
+    /** Unlink a provider id (e.g. `google.com`). */
     @JvmStatic
     fun unlink(providerId: String): String {
         val user = auth.currentUser ?: return noCurrentUser()
@@ -201,19 +221,26 @@ object DioxusFirebaseAuthHost {
     // --- Social helpers ---
 
     private fun signInOrLinkWithGoogle(link: Boolean): String {
-        if (Looper.myLooper() == Looper.getMainLooper()) {
-            return err("native", "Firebase Auth waits must not run on the main looper; use spawn_blocking")
-        }
-        val clientId = googleWebClientId
-        if (clientId.isBlank()) {
-            return err("unavailable", "google_web_client_id is required for Google sign-in")
-        }
-        val activity = requireActivity() ?: return err("unavailable", "Activity required for Google sign-in")
-        val credential = when (val result = awaitGoogleIdToken(activity, clientId)) {
+        val credential = when (val result = pickGoogleIdToken()) {
             is CredentialResult.Ok -> GoogleAuthProvider.getCredential(result.idToken, null)
             is CredentialResult.Err -> return result.reply
         }
         return applyCredential(credential, link)
+    }
+
+    private fun pickGoogleIdToken(): CredentialResult {
+        if (Looper.myLooper() == Looper.getMainLooper()) {
+            return CredentialResult.Err(
+                err("native", "Firebase Auth waits must not run on the main looper; use spawn_blocking"),
+            )
+        }
+        val clientId = googleWebClientId
+        if (clientId.isBlank()) {
+            return CredentialResult.Err(err("unavailable", "google_web_client_id is required for Google sign-in"))
+        }
+        val activity = requireActivity()
+            ?: return CredentialResult.Err(err("unavailable", "Activity required for Google sign-in"))
+        return awaitGoogleIdToken(activity, clientId)
     }
 
     private fun signInOrLinkWithApple(link: Boolean): String {

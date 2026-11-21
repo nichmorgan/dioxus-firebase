@@ -6,7 +6,7 @@
 #![allow(dead_code)] // used from android/ios native modules
 
 use crate::error::FirebaseError;
-use crate::user::{nonempty, User, UserInfo};
+use crate::user::{nonempty, ProviderCredential, User, UserInfo};
 
 pub(crate) const UNIT: char = '\u{1f}';
 
@@ -31,6 +31,21 @@ pub(crate) fn parse_optional_string(reply: &str) -> Result<Option<String>, Fireb
         Some(value) => Ok(Some(value.to_string())),
         None => Ok(None),
     }
+}
+
+/// Parse `OK\x1fidToken\x1frawNonce` (empty nonce for Google).
+pub(crate) fn parse_provider_credential(reply: &str) -> Result<ProviderCredential, FirebaseError> {
+    let body = parse_ok_body(reply)?.unwrap_or_default();
+    let (id_token, raw_nonce) = body.split_once(UNIT).unwrap_or((body, ""));
+    let Some(id_token) = nonempty(id_token.to_string()) else {
+        return Err(FirebaseError::Native {
+            message: "expected provider ID token in host reply".into(),
+        });
+    };
+    Ok(ProviderCredential {
+        id_token,
+        raw_nonce: nonempty(raw_nonce.to_string()),
+    })
 }
 
 pub(crate) fn parse_user(reply: &str) -> Result<User, FirebaseError> {
@@ -250,6 +265,44 @@ mod tests {
     }
 
     #[rstest]
+    #[case::google(format!("OK{UNIT}g-token{UNIT}"), "g-token", None)]
+    #[case::apple(format!("OK{UNIT}a-token{UNIT}raw"), "a-token", Some("raw"))]
+    #[case::no_separator(format!("OK{UNIT}g-token"), "g-token", None)]
+    fn test_parse_provider_credential(
+        #[case] input: String,
+        #[case] id_token: &str,
+        #[case] raw_nonce: Option<&str>,
+    ) {
+        assert_eq!(
+            parse_provider_credential(&input),
+            Ok(ProviderCredential {
+                id_token: id_token.into(),
+                raw_nonce: raw_nonce.map(str::to_string),
+            })
+        );
+    }
+
+    #[rstest]
+    #[case::canceled(
+        err_reply("canceled", "user canceled"),
+        FirebaseError::AuthException { code: "canceled".into(), message: "user canceled".into() }
+    )]
+    #[case::empty_token(
+        format!("OK{UNIT}{UNIT}raw"),
+        FirebaseError::Native { message: "expected provider ID token in host reply".into() }
+    )]
+    #[case::bare_ok(
+        "OK".to_string(),
+        FirebaseError::Native { message: "expected provider ID token in host reply".into() }
+    )]
+    fn test_parse_provider_credential_errors(
+        #[case] input: String,
+        #[case] expected: FirebaseError,
+    ) {
+        assert_eq!(parse_provider_credential(&input), Err(expected));
+    }
+
+    #[rstest]
     #[case(
         ok_user_reply(
             "uid1",
@@ -314,7 +367,10 @@ mod tests {
     #[case("no-such-provider", "Missing")]
     #[case("no-current-user", "No user currently signed in.")]
     #[case("requires-recent-login", "Sign in again")]
-    #[case("operation-not-allowed", "A Sign in with Apple request is already in progress.")]
+    #[case(
+        "operation-not-allowed",
+        "A Sign in with Apple request is already in progress."
+    )]
     fn test_parse_error_codes(#[case] expected_code: &str, #[case] expected_msg: &str) {
         let raw = err_reply(expected_code, expected_msg);
         let err = parse_void(&raw).unwrap_err();

@@ -29,6 +29,10 @@ Map codes to user-facing strings in the app (anti-enumeration on login, etc.).
 - `link_with_apple` — link Apple to the current user
 - `unlink` — pass a provider id (`"google.com"`, `"apple.com"`, `"password"`, …)
 
-There is **no** dedicated “switch store account” helper. To attach a different Google identity to the same Firebase uid: `unlink("google.com")` then `link_with_google()` while still signed in. The same pattern applies to Apple: `unlink("apple.com")` then `link_with_apple()`. Signing in with that provider after unlink (without linking) creates a **new** Firebase user (Firebase Auth behavior).
+Firebase allows one login per provider, so the client cannot link a second Google or Apple identity next to the first. `unlink("google.com")` then `link_with_google()` attaches a different identity to the same uid, but a dismissed sheet or a failed link leaves the user without that login (and with no login at all when it was the only one).
+
+To switch without that gap, call `pick_google_credential()` or `pick_apple_credential()` (iOS only). They open the same sheets and return the ID token without touching Firebase, so a dismiss changes nothing. Send the token to your backend, verify it, and swap the provider there with Identity Toolkit `accounts:update` (`deleteProvider` plus `linkProviderUserInfo`). Then call `reload_current_user()` so the client sees the new `providerData`.
+
+Signing in with that provider after unlink (without linking) creates a **new** Firebase user (Firebase Auth behavior).
 
 Google Console and platform setup: [Google sign-in](google-sign-in.md). Apple, including the same uid on Android and iOS: [Apple sign-in](apple-sign-in.md).

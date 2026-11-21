@@ -2,7 +2,7 @@
 
 use crate::config::FirebaseOptions;
 use crate::error::FirebaseError;
-use crate::user::User;
+use crate::user::{ProviderCredential, User};
 
 pub(crate) fn initialize_app(_options: &FirebaseOptions) -> Result<(), FirebaseError> {
     Err(FirebaseError::UnsupportedPlatform)
@@ -71,5 +71,17 @@ pub(crate) fn sign_in_with_apple() -> Result<User, FirebaseError> {
 }
 
 pub(crate) fn link_with_apple() -> Result<User, FirebaseError> {
+    Err(FirebaseError::UnsupportedPlatform)
+}
+
+pub(crate) fn pick_google_credential() -> Result<ProviderCredential, FirebaseError> {
+    Err(FirebaseError::UnsupportedPlatform)
+}
+
+pub(crate) fn pick_apple_credential() -> Result<ProviderCredential, FirebaseError> {
+    Err(FirebaseError::UnsupportedPlatform)
+}
+
+pub(crate) fn reload_current_user() -> Result<Option<User>, FirebaseError> {
     Err(FirebaseError::UnsupportedPlatform)
 }

@@ -193,25 +193,60 @@ public class DioxusFirebaseAuthHost: NSObject {
 
     @objc(signInWithGoogle)
     public static func signInWithGoogle() -> String {
-        signInOrLinkWithGoogle(link: false)
+        googleFlow(.signIn)
     }
 
     @objc(linkWithGoogle)
     public static func linkWithGoogle() -> String {
-        signInOrLinkWithGoogle(link: true)
+        googleFlow(.link)
+    }
+
+    /// Google sheet only: replies `OK␟idToken␟` without touching Firebase.
+    @objc(pickGoogleCredential)
+    public static func pickGoogleCredential() -> String {
+        googleFlow(.pick)
     }
 
     @objc(signInWithApple)
     public static func signInWithApple() -> String {
-        signInOrLinkWithApple(link: false)
+        appleFlow(.signIn)
     }
 
     @objc(linkWithApple)
     public static func linkWithApple() -> String {
-        signInOrLinkWithApple(link: true)
+        appleFlow(.link)
     }
 
-    /// Unlink a provider id (e.g. `google.com`). Prefer unlink then link to change store identity.
+    /// Apple sheet only: replies `OK␟idToken␟rawNonce` without touching Firebase.
+    @objc(pickAppleCredential)
+    public static func pickAppleCredential() -> String {
+        appleFlow(.pick)
+    }
+
+    /// Reload the current user and force a fresh ID token (server-side provider changes).
+    @objc(reloadCurrentUser)
+    public static func reloadCurrentUser() -> String {
+        guard let user = auth.currentUser else {
+            return ok()
+        }
+        return awaitReply { finish in
+            user.reload { error in
+                if let error = error {
+                    finish(mapError(error))
+                    return
+                }
+                user.getIDTokenForcingRefresh(true) { _, error in
+                    if let error = error {
+                        finish(mapError(error))
+                    } else {
+                        finish(okUser(auth.currentUser))
+                    }
+                }
+            }
+        }
+    }
+
+    /// Unlink a provider id (e.g. `google.com`).
     @objc(unlink:)
     public static func unlink(_ providerId: String) -> String {
         guard let user = auth.currentUser else {
@@ -260,7 +295,14 @@ public class DioxusFirebaseAuthHost: NSObject {
         return nil
     }
 
-    private static func signInOrLinkWithGoogle(link: Bool) -> String {
+    /// `pick` returns the sheet's token instead of signing in or linking.
+    private enum SocialMode {
+        case signIn
+        case link
+        case pick
+    }
+
+    private static func googleFlow(_ mode: SocialMode) -> String {
         if Thread.isMainThread {
             return err("native", "Firebase Auth waits must not run on the main thread; use spawn_blocking")
         }
@@ -287,6 +329,10 @@ public class DioxusFirebaseAuthHost: NSObject {
                         finish(err("invalid-credential", "Google ID token missing"))
                         return
                     }
+                    if mode == .pick {
+                        finish("OK\(unit)\(idToken)\(unit)")
+                        return
+                    }
                     guard let accessToken = result?.user.accessToken.tokenString, !accessToken.isEmpty else {
                         finish(err("invalid-credential", "Google access token missing"))
                         return
@@ -295,7 +341,7 @@ public class DioxusFirebaseAuthHost: NSObject {
                         withIDToken: idToken,
                         accessToken: accessToken
                     )
-                    applyCredential(credential, link: link, finish: finish)
+                    applyCredential(credential, link: mode == .link, finish: finish)
                 }
             }
         }
@@ -305,11 +351,11 @@ public class DioxusFirebaseAuthHost: NSObject {
     /// `OAuthProvider(providerID: "apple.com")`. Firebase Auth 11.15 fatalErrors
     /// that initializer unless the Auth emulator is set, and tells you to use
     /// the Apple SDK. Scopes are `email` and `name`, matching FlutterFire.
-    private static func signInOrLinkWithApple(link: Bool) -> String {
+    private static func appleFlow(_ mode: SocialMode) -> String {
         if Thread.isMainThread {
             return err("native", "Firebase Auth waits must not run on the main thread; use spawn_blocking")
         }
-        if link && auth.currentUser == nil {
+        if mode == .link && auth.currentUser == nil {
             return err("no-current-user", "No user currently signed in.")
         }
         appleLock.lock()
@@ -340,12 +386,17 @@ public class DioxusFirebaseAuthHost: NSObject {
                         clearAppleInFlight()
                         finish(err("unavailable", message))
                     case .success(let appleIdToken, let fullName):
+                        if mode == .pick {
+                            clearAppleInFlight()
+                            finish("OK\(unit)\(appleIdToken)\(unit)\(rawNonce)")
+                            return
+                        }
                         let credential = OAuthProvider.appleCredential(
                             withIDToken: appleIdToken,
                             rawNonce: rawNonce,
                             fullName: fullName
                         )
-                        applyCredential(credential, link: link) { reply in
+                        applyCredential(credential, link: mode == .link) { reply in
                             clearAppleInFlight()
                             finish(reply)
                         }

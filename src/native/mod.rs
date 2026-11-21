@@ -2,7 +2,7 @@
 
 use crate::config::FirebaseOptions;
 use crate::error::FirebaseError;
-use crate::user::User;
+use crate::user::{ProviderCredential, User};
 
 #[cfg(target_os = "android")]
 mod android;
@@ -100,4 +100,16 @@ pub(crate) fn sign_in_with_apple() -> Result<User, FirebaseError> {
 
 pub(crate) fn link_with_apple() -> Result<User, FirebaseError> {
     native_call!(link_with_apple())
+}
+
+pub(crate) fn pick_google_credential() -> Result<ProviderCredential, FirebaseError> {
+    native_call!(pick_google_credential())
+}
+
+pub(crate) fn pick_apple_credential() -> Result<ProviderCredential, FirebaseError> {
+    native_call!(pick_apple_credential())
+}
+
+pub(crate) fn reload_current_user() -> Result<Option<User>, FirebaseError> {
+    native_call!(reload_current_user())
 }

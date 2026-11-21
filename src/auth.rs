@@ -4,7 +4,7 @@ use crate::error::FirebaseError;
 use crate::host_protocol::{require_email, require_email_password};
 use crate::init::require_initialized;
 use crate::native;
-use crate::user::User;
+use crate::user::{ProviderCredential, User};
 
 /// Blocks until the native Firebase Task completes — call from
 /// `spawn_blocking` / a worker thread, not the UI thread or first paint.
@@ -111,10 +111,12 @@ pub fn link_with_google() -> Result<User, FirebaseError> {
 /// Unlink a provider from the **current** user (`User.unlink`).
 ///
 /// Pass a Firebase provider id such as `"google.com"`, `"apple.com"`, or
-/// `"password"`. There is no dedicated “switch store account” API — to attach a
-/// different Google identity, call this then [`link_with_google`] while still
-/// signed in. Signing in with that provider after unlink (without linking)
-/// creates a **new** Firebase user.
+/// `"password"`. Unlink then link leaves a gap with no login for that provider
+/// (and an orphaned user when it was the only one) if the second step is
+/// cancelled or fails. To switch accounts without a gap, use
+/// [`pick_google_credential`] / [`pick_apple_credential`] and link server-side.
+/// Signing in with that provider after unlink (without linking) creates a
+/// **new** Firebase user.
 pub fn unlink(provider_id: impl AsRef<str>) -> Result<User, FirebaseError> {
     require_initialized()?;
     let provider_id = provider_id.as_ref().trim();
@@ -143,6 +145,38 @@ pub fn sign_in_with_apple() -> Result<User, FirebaseError> {
 pub fn link_with_apple() -> Result<User, FirebaseError> {
     require_initialized()?;
     native::link_with_apple()
+}
+
+/// Present the Google account sheet and return the picked account's ID token.
+///
+/// Nothing is signed in or linked, so a dismiss (`canceled`) changes nothing.
+/// Send the token to a backend that links it with the Admin SDK, then call
+/// [`reload_current_user`]. Call from `spawn_blocking` / a worker thread.
+pub fn pick_google_credential() -> Result<ProviderCredential, FirebaseError> {
+    require_initialized()?;
+    native::pick_google_credential()
+}
+
+/// Present Sign in with Apple and return the ID token plus its raw nonce.
+///
+/// iOS only. Android returns [`FirebaseError::UnsupportedPlatform`]: its
+/// browser flow signs in or links in one step and never returns the token.
+pub fn pick_apple_credential() -> Result<ProviderCredential, FirebaseError> {
+    require_initialized()?;
+    native::pick_apple_credential()
+}
+
+/// Reload the current user and force a fresh ID token (`User.reload`).
+///
+/// Use after a backend changed this user's providers. Subscribers receive the
+/// reloaded user. Returns `None` when signed out.
+pub fn reload_current_user() -> Result<Option<User>, FirebaseError> {
+    require_initialized()?;
+    let user = native::reload_current_user()?;
+    if let Some(user) = &user {
+        crate::subscribe::dispatch_auth_state(Some(user.clone()));
+    }
+    Ok(user)
 }
 
 fn republish_current_user() -> Result<(), FirebaseError> {

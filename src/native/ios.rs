@@ -15,9 +15,11 @@ use objc::{class, msg_send, sel, sel_impl};
 
 use crate::config::FirebaseOptions;
 use crate::error::FirebaseError;
-use crate::host_protocol::{parse_optional_string, parse_optional_user, parse_user, parse_void};
+use crate::host_protocol::{
+    parse_optional_string, parse_optional_user, parse_provider_credential, parse_user, parse_void,
+};
 use crate::subscribe;
-use crate::user::User;
+use crate::user::{ProviderCredential, User};
 
 const HOST_CLASS_NAME: &str = "DioxusFirebaseAuthHost";
 
@@ -155,6 +157,24 @@ pub(crate) fn link_with_apple() -> Result<User, FirebaseError> {
     let host = host_class()?;
     let reply: *mut Object = unsafe { msg_send![host, linkWithApple] };
     map_reply(reply, parse_user)
+}
+
+pub(crate) fn pick_google_credential() -> Result<ProviderCredential, FirebaseError> {
+    let host = host_class()?;
+    let reply: *mut Object = unsafe { msg_send![host, pickGoogleCredential] };
+    map_reply(reply, parse_provider_credential)
+}
+
+pub(crate) fn pick_apple_credential() -> Result<ProviderCredential, FirebaseError> {
+    let host = host_class()?;
+    let reply: *mut Object = unsafe { msg_send![host, pickAppleCredential] };
+    map_reply(reply, parse_provider_credential)
+}
+
+pub(crate) fn reload_current_user() -> Result<Option<User>, FirebaseError> {
+    let host = host_class()?;
+    let reply: *mut Object = unsafe { msg_send![host, reloadCurrentUser] };
+    map_reply(reply, parse_optional_user)
 }
 
 #[no_mangle]
